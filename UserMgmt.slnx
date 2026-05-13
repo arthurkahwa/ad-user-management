@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/UserMgmt.Core/UserMgmt.Core.csproj" />
+    <Project Path="src/UserMgmt.Data/UserMgmt.Data.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/UserMgmt.Core.Tests/UserMgmt.Core.Tests.csproj" />
+  </Folder>
+</Solution>

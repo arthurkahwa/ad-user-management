@@ -4,7 +4,7 @@
 
 ![Language](https://img.shields.io/badge/language-C%23%20%7C%20Swift-239120?style=flat-square)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20iOS%2026%20%7C%20iPadOS%2026-2f80ed?style=flat-square)
-![.NET](https://img.shields.io/badge/.NET-8.0-512bd4?style=flat-square)
+![.NET](https://img.shields.io/badge/.NET-10-512bd4?style=flat-square)
 ![SwiftUI](https://img.shields.io/badge/SwiftUI-Native-fa7343?style=flat-square)
 ![ML.NET](https://img.shields.io/badge/ML.NET-BinaryClassification-8a2be2?style=flat-square)
 ![Compliance](https://img.shields.io/badge/compliance-GDPR%20%7C%20ISO%2027001-0a7f3f?style=flat-square)
@@ -84,8 +84,8 @@ Key differentiators:
 
 | Category | Technology | Purpose |
 |---|---|---|
-| Web framework | ASP.NET Core 8 Razor Pages | Server-rendered admin UI, Windows Authentication, antiforgery |
-| Web API | ASP.NET Core 8 Controllers + JWT Bearer | REST surface for the iOS client |
+| Web framework | ASP.NET Core 10 Razor Pages | Server-rendered admin UI, Windows Authentication, antiforgery |
+| Web API | ASP.NET Core 10 Controllers + JWT Bearer | REST surface for the iOS client |
 | Identity (directory) | Active Directory over LDAPS | Source of truth for identity; all password ops on port 636 |
 | Identity (OAuth) | AD FS (on-premises) | OAuth 2.0 Authorization Code with PKCE for the iOS app |
 | Persistence | SQL Server on-premises + EF Core | Sidecar store for custom attributes, audit, app logs, ML metrics |
