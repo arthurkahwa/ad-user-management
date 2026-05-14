@@ -355,7 +355,13 @@ public sealed partial class AdService : IAdService
 }
 
 /// <summary>Canonical AD attribute names referenced by <see cref="AdService"/>.</summary>
-internal static class AdAttributes
+/// <remarks>
+/// Declared <c>partial</c> so each M1 write-path slice can extend the
+/// constant set in its own file without touching this one. The keyword
+/// is harmless on the read-path constants below and load-bearing for
+/// sibling slices (Create / Update / Group / Reset).
+/// </remarks>
+internal static partial class AdAttributes
 {
     public const string SamAccountName = "sAMAccountName";
     public const string UserPrincipalName = "userPrincipalName";

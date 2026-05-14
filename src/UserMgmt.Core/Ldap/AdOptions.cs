@@ -29,4 +29,14 @@ public sealed record AdOptions
     /// service layer scopes all <c>SearchAsync</c> calls below this DN.
     /// </summary>
     public string BaseDn { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Whitelist of OU distinguished names that
+    /// <c>AdService.CreateAsync</c> is permitted to create users beneath.
+    /// Any <c>NewUserDto.OuPath</c> not listed here is rejected with
+    /// <see cref="UserMgmt.Core.Common.OuNotAllowed"/> before any AD
+    /// interaction. Comparison is ordinal case-insensitive (DNs are
+    /// case-preserving but case-insensitive per RFC 4514).
+    /// </summary>
+    public IReadOnlyList<string> AllowedOus { get; init; } = [];
 }
