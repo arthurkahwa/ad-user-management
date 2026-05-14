@@ -8,7 +8,12 @@
     <PackageReference Include="Microsoft.Extensions.Caching.Memory" />
     <PackageReference Include="Microsoft.Extensions.Caching.Abstractions" />
     <PackageReference Include="System.DirectoryServices.Protocols" />
+    <PackageReference Include="System.DirectoryServices" />
     <PackageReference Include="FluentValidation" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="UserMgmt.Core.Tests" />
   </ItemGroup>
 
 </Project>
