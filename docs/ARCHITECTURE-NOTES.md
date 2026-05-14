@@ -166,6 +166,36 @@ Service result types compose these — e.g. `Result<AdUser, CreateUserError>` wh
 - **DENY UPDATE / DELETE on AuditEntry** runs in the migration's `Up` via `migrationBuilder.Sql(...)`. The GRANT target is configurable via the `UserMgmt:AppPrincipal` config key (default `CURRENT_USER` for local dev; in production, supplied via deploy-time configuration).
 - **Migration naming**: `<Verb>_<Subject>` (e.g. `Add_AuditEntryAppendOnly`, `Update_UserAttributes_AddCostCenter`).
 
+## Partial-class ownership map for `AdService`
+
+`AdService` is declared `partial` across multiple files (one per operation family). When several agents extend a `partial` class in parallel, two failure modes emerge that git's textual merge cannot detect:
+
+1. **Duplicate field declarations.** Two partial files independently declare the same private field (e.g. `_auditService`). C# rejects this at build time, but only after the merge has landed on `main`.
+2. **Duplicate constant declarations** inside nested `partial` helper classes (e.g. `AdAttributes`). Same failure mode at the `partial static class` level.
+
+Both fired during the M1 wave-2 dispatch and required a fix-forward commit on `main`. The rule below prevents recurrence: **each shared field, logger, and nested-class constant has exactly one declaring file; other partials reference it without redeclaring.**
+
+### Current ownership
+
+| File | Owns (declares) | References (uses but does not declare) |
+|---|---|---|
+| `AdService.cs` | `_connection`, `_options`, `_logger`; the read-path 3-arg constructor; the `AdAttributes` partial root with read-path constants (`SamAccountName`, `UserPrincipalName`, `DistinguishedName`, `DisplayName`, `GivenName`, `Surname`, `Department`, `Manager`, `WhenCreated`, `LastLogon`, `UserAccountControl`) | — |
+| `AdService.Create.cs` | `_attributeService`, `_auditService`, `_reconciliationQueue`; the 6-arg write-path constructor; `AdAttributes` constants `UnicodePwd` and `PwdLastSet`; helpers `IsOuWhitelisted`, `UpnExistsAsync` | `_connection`, `_options`, `_logger`, `_currentActor` |
+| `AdService.Update.cs` | `AttributeRoutes` dispatch table; `LogAdAttributeConflict` logger; the 5-arg constructor overload (chains to read-path) | `_connection`, `_attributeService`, `_auditService` |
+| `AdService.Lifecycle.cs` | `LogPasswordResetSucceeded`, `LogSetEnabledSucceeded` loggers; `AccountDisableBit`, `LdapsPort` constants; the 4-arg constructor overload (chains to read-path); helpers `GetDnAndUacAsync`, `IsCasFailure`, `RecordEnableAuditAsync`, `RecordPasswordResetAuditAsync` | `_connection`, `_auditService`, `UnicodePwd` / `PwdLastSet` from `AdService.Create.cs` |
+| `AdService.Groups.cs` | `_currentActor`; `MemberAttribute` constant; `GroupAttributes`, `UserDnOnlyAttributes` arrays; the 5-arg constructor overload (chains to read-path); helpers `ResolveUserDnAsync`, `ResolveGroupAsync`, `GroupContainsMember`, `RecordMembershipAuditAsync` | `_connection`, `_auditService` |
+
+### Rule for future partials
+
+When adding a new partial file (e.g. for a new operation family in M2 / M3):
+
+1. **Before declaring any private field**, grep across all `AdService.*.cs` files. If the field already exists, use it; do not redeclare.
+2. **Before declaring a nested-class constant** (especially inside `AdAttributes`), grep for the constant. Same rule.
+3. **Constructor overloads with distinct parameter lists coexist freely.** A new constructor that initialises an already-declared field is expected, not a duplicate.
+4. **If a shared dependency genuinely doesn't exist yet**, add it to the file whose concern is closest (typically `AdService.Create.cs` since it owns the canonical write-path constructor). Then extend the table above so the next contributor finds it.
+
+The same rule applies to any other class that becomes `partial` across files in this codebase. The table here is the canonical reference for `AdService`; sibling tables should be added to this section as needed.
+
 ## Repository structure (M1 only — other projects added when their milestone starts)
 
 ```
