@@ -18,7 +18,7 @@ namespace UserMgmt.Core.Services;
 /// attribute reads use the attribute set documented in
 /// <c>docs/ARCHITECTURE-NOTES.md</c> (<see cref="AdUser"/> shape).
 /// </remarks>
-public sealed class AdService : IAdService
+public sealed partial class AdService : IAdService
 {
     private const string ObjectClassFilter = "(&(objectCategory=person)(objectClass=user)";
 

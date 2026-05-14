@@ -19,7 +19,14 @@ public sealed record UpnAlreadyExists(string Upn);
 
 /// <summary>No user matches the supplied UPN.</summary>
 /// <param name="Upn">The UPN that was queried.</param>
-public sealed record UserNotFound(string Upn);
+/// <remarks>
+/// Also surfaced as a <see cref="GroupMembershipError"/> case from
+/// <c>AdService.AddToGroupAsync</c> / <c>RemoveFromGroupAsync</c>; the
+/// inheritance lets the existing flat error record participate in the M1.7
+/// tagged union without callers in other slices observing a behavioural
+/// change.
+/// </remarks>
+public sealed record UserNotFound(string Upn) : GroupMembershipError;
 
 /// <summary>
 /// Indicates a cross-store write that succeeded in AD but failed in the sidecar.
