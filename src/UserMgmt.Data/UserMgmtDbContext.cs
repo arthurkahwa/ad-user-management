@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using UserMgmt.Core.Domain;
 using UserMgmt.Data.Entities;
 using UserMgmt.Data.Interceptors;
 
@@ -46,7 +47,10 @@ public class UserMgmtDbContext : DbContext
             entity.Property(e => e.EmployeeId).HasMaxLength(64);
             entity.Property(e => e.CostCenter).HasMaxLength(64);
             entity.Property(e => e.ContractType).HasMaxLength(64);
-            entity.Property(e => e.RowVersion).IsRowVersion();
+            // RowVersion is an app-bumped Guid concurrency token (not the SQL
+            // Server rowversion type) so concurrency semantics work identically
+            // across providers. AttributeService rotates the value on every write.
+            entity.Property(e => e.RowVersion).IsConcurrencyToken().IsRequired();
         });
 
         modelBuilder.Entity<AuditEntry>(entity =>

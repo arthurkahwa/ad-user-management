@@ -1,13 +1,19 @@
-using System.ComponentModel.DataAnnotations;
 using UserMgmt.Core.Auth;
 
-namespace UserMgmt.Data.Entities;
+namespace UserMgmt.Core.Domain;
 
 /// <summary>
 /// Sidecar attributes for an AD user that are not mirrored into AD itself.
 /// Keyed by <see cref="Upn"/>; updated under optimistic concurrency via
 /// <see cref="RowVersion"/>.
 /// </summary>
+/// <remarks>
+/// Lives in <c>UserMgmt.Core/Domain/</c> rather than <c>UserMgmt.Data/Entities/</c>
+/// so the <see cref="UserMgmt.Core.Services.IAttributeService"/> can return it
+/// without Core taking a dependency on Data. <c>UserMgmt.Data</c> configures
+/// the persistence mapping (table name, max lengths, concurrency token) in
+/// <c>UserMgmtDbContext.OnModelCreating</c>.
+/// </remarks>
 public sealed class UserAttributes
 {
     /// <summary>UPN — also the primary key.</summary>
@@ -35,7 +41,15 @@ public sealed class UserAttributes
     /// </summary>
     public bool ExcludeFromMLScoring { get; set; }
 
-    /// <summary>SQL Server <c>rowversion</c> token for optimistic concurrency.</summary>
-    [Timestamp]
-    public byte[]? RowVersion { get; set; }
+    /// <summary>
+    /// Optimistic-concurrency token for this row. An app-bumped <see cref="Guid"/>
+    /// rather than a SQL Server <c>rowversion</c>, so the same concurrency
+    /// mechanism works identically across SQL Server, SQLite, and the EF Core
+    /// in-memory provider — see <c>docs/ARCHITECTURE-NOTES.md</c> for the
+    /// rationale. Rotated by <see cref="UserMgmt.Core.Services.IAttributeService"/>
+    /// on every write; never modified by callers directly. Excluded from the
+    /// audit log because it is a control-plane token, not business data.
+    /// </summary>
+    [AuditIgnore]
+    public Guid RowVersion { get; set; }
 }
