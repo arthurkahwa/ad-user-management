@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using UserMgmt.Core.Auth;
+using UserMgmt.Core.Domain;
 using UserMgmt.Core.Services;
 using UserMgmt.Core.Tests.Fixtures;
 using UserMgmt.Data.Entities;

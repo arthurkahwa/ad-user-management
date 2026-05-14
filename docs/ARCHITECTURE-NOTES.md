@@ -156,6 +156,10 @@ Service result types compose these — e.g. `Result<AdUser, CreateUserError>` wh
 
 `LdapsRequiredException` lives in `UserMgmt.Core/Ldap/` and is a simple `Exception` subclass.
 
+## Optimistic concurrency on `UserAttributes`
+
+`UserAttributes.RowVersion` is a `Guid` concurrency token that the application bumps on every write — **not** a SQL Server `rowversion` byte array. SQL Server's `rowversion` is server-generated and monotonically bumped, but SQLite (which the test fixture uses) has no equivalent type and won't auto-bump a `byte[]` column the same way; the M1.1 PR therefore deferred the real RowVersion concurrency test. Switching to an app-managed `Guid` makes the mechanism behave identically across SQL Server, SQLite, and EF Core's in-memory provider — the property is configured with `.IsConcurrencyToken()` on the model, `AttributeService` writes a fresh `Guid.NewGuid()` before each `SaveChangesAsync`, and EF Core's standard `DbUpdateConcurrencyException` path still surfaces stale-token attempts to update. The property is marked `[AuditIgnore]` so the audit log doesn't record token rotations. Callers exchange tokens as `Guid?` rather than `byte[]?` at the service boundary. The original `byte[] RowVersion` column shape in the `InitialCreate` migration is altered to `uniqueidentifier` by the follow-up `ChangeRowVersionToGuidConcurrencyToken` migration.
+
 ## Migration conventions
 
 - **EF Core migrations** live in `src/UserMgmt.Data/Migrations/`. Use `dotnet ef migrations add` to scaffold.
@@ -169,13 +173,14 @@ src/
   UserMgmt.Core/             Domain types, services, abstractions
     Auth/                    ICurrentActor, Actor, SystemActor
     Common/                  Result, PagedResult, error types
-    Domain/                  AdUser, NewUserDto
+    Domain/                  AdUser, NewUserDto, UserAttributes, UserAttributesDto
     Ldap/                    IAdConnection, AdConnection, LdapFilterEscape, LdapsRequiredException
-    Services/                IAdService, AdService, IAttributeService, AttributeService, IAuditService, AuditService
+    Services/                IAdService, IAttributeService, IAuditService (implementations live in UserMgmt.Data)
     Validation/              FluentValidation validators
   UserMgmt.Data/             EF Core
     UserMgmtDbContext.cs
-    Entities/                UserAttributes, AuditEntry, ReconciliationQueue, AppLog
+    Entities/                AuditEntry, ReconciliationQueue, AppLog
+    Services/                AdService, AttributeService, AuditService (depend on UserMgmtDbContext)
     Interceptors/            AuditSaveChangesInterceptor
     Migrations/              EF Core migrations (auto-generated)
 tests/
