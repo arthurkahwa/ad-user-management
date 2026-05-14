@@ -13,7 +13,7 @@ namespace UserMgmt.Core.Services;
 /// and group membership) land in subsequent M1 slices and will extend this
 /// interface in additive partial files or revisions.
 /// </remarks>
-public interface IAdService
+public partial interface IAdService
 {
     /// <summary>
     /// Page through users whose display attributes match the supplied query.

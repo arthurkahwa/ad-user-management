@@ -18,7 +18,7 @@ namespace UserMgmt.Core.Services;
 /// attribute reads use the attribute set documented in
 /// <c>docs/ARCHITECTURE-NOTES.md</c> (<see cref="AdUser"/> shape).
 /// </remarks>
-public sealed class AdService : IAdService
+public sealed partial class AdService : IAdService
 {
     private const string ObjectClassFilter = "(&(objectCategory=person)(objectClass=user)";
 
@@ -355,7 +355,13 @@ public sealed class AdService : IAdService
 }
 
 /// <summary>Canonical AD attribute names referenced by <see cref="AdService"/>.</summary>
-internal static class AdAttributes
+/// <remarks>
+/// Declared <c>partial</c> so each M1 write-path slice can extend the
+/// constant set in its own file without touching this one. The keyword
+/// is harmless on the read-path constants below and load-bearing for
+/// sibling slices (Create / Update / Group / Reset).
+/// </remarks>
+internal static partial class AdAttributes
 {
     public const string SamAccountName = "sAMAccountName";
     public const string UserPrincipalName = "userPrincipalName";
