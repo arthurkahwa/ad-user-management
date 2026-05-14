@@ -25,7 +25,7 @@ public sealed partial class AdService
 
     private static readonly string[] UserDnOnlyAttributes = [AdAttributes.DistinguishedName];
 
-    private readonly IAuditService? _auditService;
+    // _auditService is declared in AdService.Create.cs (M1.4) — shared across all write-path partials.
     private readonly ICurrentActor? _currentActor;
 
     /// <summary>
