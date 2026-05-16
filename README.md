@@ -1,12 +1,12 @@
 # AD User Management
 
-> Active Directory administration for the browser and native iOS (iPhone + iPad), with on-premises ML-driven stale account detection.
+> Active Directory–integrated employee lifecycle journal — onboarding and offboarding checklist tracking with AD as the system of record for identity attributes and a SQL sidecar for application-specific data.
 
-![Language](https://img.shields.io/badge/language-C%23%20%7C%20Swift-239120?style=flat-square)
-![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20iOS%2026%20%7C%20iPadOS%2026-2f80ed?style=flat-square)
+![Language](https://img.shields.io/badge/language-C%23-239120?style=flat-square)
+![Platform](https://img.shields.io/badge/platform-Windows-2f80ed?style=flat-square)
 ![.NET](https://img.shields.io/badge/.NET-10-512bd4?style=flat-square)
-![SwiftUI](https://img.shields.io/badge/SwiftUI-Native-fa7343?style=flat-square)
-![ML.NET](https://img.shields.io/badge/ML.NET-BinaryClassification-8a2be2?style=flat-square)
+![UI](https://img.shields.io/badge/UI-Syncfusion%20EJ2%20ASP.NET%20Core-ff7300?style=flat-square)
+![Auth](https://img.shields.io/badge/auth-Windows%20Negotiate%20%28Kerberos%29-2b5797?style=flat-square)
 ![Compliance](https://img.shields.io/badge/compliance-GDPR%20%7C%20ISO%2027001-0a7f3f?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
 ![Status](https://img.shields.io/badge/status-Work%20in%20Progress-yellow?style=flat-square)
@@ -17,66 +17,79 @@
 
 ## Overview
 
-**AD User Management** is a self-hosted enterprise application for administering Microsoft Active Directory user accounts. It pairs an ASP.NET Core Razor Pages web interface with a native SwiftUI iOS app (iPhone + iPad with adaptive layout) — both sharing a single service layer — and augments traditional CRUD with an **ML.NET stale account predictor** that runs entirely on-premises.
+**AD User Management** is a self-hosted enterprise application for tracking the lifecycle of employee accounts in Active Directory. It replaces a patchwork of Active Directory Users and Computers (ADUC), PowerShell scripts, spreadsheets, and ASP.NET Identity logins with a single governed tool centred on a per-employee **journal** record. Each journal entry captures the joining date, departure date, identity attributes synchronised from AD, freeform case notes, and a comprehensive **onboarding checklist** covering every IT provisioning step (AD account, password, mail postbox, ActiveSync, OpenVPN certificate, third-party SaaS accounts, training material, and more).
 
-The product is designed for **IT administrators, helpdesks, and CISOs** at organisations that keep identity on-site, run Exchange on-prem, and need a modern administrative experience without sending employee data to the cloud. It replaces a patchwork of Active Directory Users and Computers (ADUC), PowerShell scripts, and spreadsheets with a governed, auditable, compliance-ready tool that maps directly to **GDPR** lawful-basis processing and **ISO/IEC 27001:2022** Annex A controls.
+The product is designed for **IT administrators, helpdesks, and compliance officers** at organisations that keep identity on-site and need an auditable, structured record of every provisioning step taken for every employee. Authentication is **true Single Sign-On** against the on-prem Active Directory via Windows Negotiate (Kerberos) — no second password, no separate Identity table.
 
 Key differentiators:
 
-- **Two first-class clients, one backend.** The Razor Pages UI and the SwiftUI iOS app talk to the same service layer — nothing is re-implemented twice.
-- **Intelligent account hygiene.** ML.NET predicts which accounts are likely to become stale using objective behavioural labels derived from AD attribute history, retrains nightly with a drift guard, and exposes scores as a sortable column and filter — alongside a transparent heuristic for side-by-side comparison.
-- **Compliance by construction.** Append-only audit log enforced at the database layer, opt-out flag for automated profiling, LDAPS-only password operations, and a DPIA-ready data model.
+- **AD is the system of record for identity.** `Vorname`, `Nachname`, `mail`, `telephoneNumber`, account-enabled state, and account expiration live in AD. The application reads and writes them through a typed service layer; the AD schema stays unmodified.
+- **SQL sidecar for application-specific data.** The onboarding checklist, freeform notes, salutation (Anrede), academic title lookup, third-party account references, and the audit log live in a SQL Server database (`MADB`). This split keeps AD pristine while giving the application rich query, audit, and history capabilities AD cannot offer.
+- **Compliance by construction.** Append-only audit log enforced at the database layer (DENY UPDATE / DELETE for the application identity), LDAPS-only password operations, gMSA application-pool identity, and a data model that maps directly to **GDPR** lawful-basis processing and **ISO/IEC 27001:2022** Annex A controls.
+- **True AD SSO.** Windows Authentication via the Negotiate protocol. Domain-joined browsers present the user's existing Kerberos ticket; no login page, no second password, no AD FS, no Entra dependency.
 
 ---
 
 ## Key Features
 
-### Identity and lifecycle
+### Employee journal
 
 | Feature | Description |
 |---|---|
-| User CRUD | Create, read, update, enable, disable, and delete accounts in AD with optimistic concurrency via LDAP attribute-level CAS (delete-old/add-new) on AD and `RowVersion` on SQL |
-| OU picker | Admins create users only in OUs whitelisted in configuration — no arbitrary OU writes |
+| Per-employee journal | One `UserJournal` record per employee, capturing identity, contact, lifecycle dates (`ZeitVon`/`ZeitBis`), salutation (Anrede), academic title, freeform notes (`Notes01`–`Notes05`), and the onboarding checklist |
+| Identity sync from AD | `Vorname`, `Nachname`, `Kürzel`, `Sid`, `mail`, `telephoneNumber`, `physicalDeliveryOfficeName`, account-enabled state read live from AD on each load — never duplicated to SQL |
+| Lifecycle dates | `ZeitVon` (start) and `ZeitBis` (end, nullable) drive the active/inactive view, with `accountExpires` in AD kept in lockstep with `ZeitBis` |
+| Soft delete | Departing employees set `ZeitBis`; their AD account is disabled via `userAccountControl`; their journal record persists for audit and reporting |
+| Lookups | `AcademicTitle` (Dr./Prof./Dipl.-Ing./…) and `Anrede` (Herr/Frau/Divers/…) are reference tables, maintained through dedicated admin views |
+
+### Onboarding checklist
+
+| Feature | Description |
+|---|---|
+| ~20 provisioning steps | Each journal carries booleans for AD password set, AD account created, AD account configured, TK account created, mail postbox created, ActiveSync permissions, Mail Marshal, calendar permissions, quota, WiFi guest account, cloud account, OpenVPN certificate, RDP training scripts, mail-matrix sheet, Wake-on-LAN, computer-usage sheet, password list (printed 2×), BPC3 user-list updated, BPC3 person created, BPC3 user created, BPC1 account, and more |
+| Third-party accounts | Each of Autodesk, Adobe, and Solibri carries a *created* boolean plus a 1024-character free-text field for account identifiers / licence references |
+| Freeform notes | Five long-form note fields (`Notes01`–`Notes05`, `ntext`) for case-specific context the structured fields cannot capture |
+| Field-level audit | Every checklist tick, note edit, or field change emits an `AuditEntry` row via the EF Core `SaveChangesInterceptor` (actor UPN, source surface, field name, old/new value, timestamp) |
+
+### Active Directory operations
+
+| Feature | Description |
+|---|---|
+| User CRUD | Create, read, update, enable, disable, and delete AD accounts with optimistic concurrency via LDAP attribute-level CAS (delete-old/add-new) on AD and `RowVersion` on SQL |
+| OU whitelist | Admins create users only in OUs whitelisted in configuration — no arbitrary OU writes |
 | Password reset | Random 16-character generator, LDAPS-only `unicodePwd` write, `pwdLastSet = 0` to force change at next login |
-| Group membership | Type-ahead group picker, add/remove via `member` attribute on the group object, per-change audit rows |
-| Soft delete | Move to "Deleted Users" OU with configurable grace period before hard delete |
-
-### Intelligence
-
-| Feature | Description |
-|---|---|
-| Stale risk scoring | ML.NET `FastTree` binary classifier over 8 behavioural features, labelled from AD attribute history (not the audit log — see [Why our labels don't come from our own audit log](#why-our-labels-dont-come-from-our-own-audit-log)) |
-| Nightly retrain | Windows Task Scheduler runs `UserMgmt.MLTrainer` at 02:00. Labels are computed from forward-window AD behaviour over the prior 180 days. Audit rows with `Source='MLRetrain'` are always excluded from training to prevent feedback loops. Model metrics written to SQL for drift monitoring. |
-| Drift guard | New model rejected if AUC drops by more than 5% vs. previous run |
-| Heuristic comparison | UI surfaces a side-by-side badge showing the ML score and a transparent rule-based flag (`lastLogon > 90d`). Admins can sanity-check the model on every user. |
-| GDPR opt-out | `ExcludeFromMLScoring` flag on `UserAttributes` removes a user from automated profiling |
+| Group membership | Type-ahead group picker, add/remove via the group's `member` attribute (not the user's `memberOf` back-link), per-change audit rows |
+| Account expiration | `ZeitBis` writes to AD's `accountExpires` attribute; the account expires automatically at the journal-recorded departure date |
 
 ### Bulk and export
 
 | Feature | Description |
 |---|---|
-| Multi-select | Checkbox column, "select all" applies to filtered rows only |
-| Bulk actions | Disable, enable, delete, change department, add to group — all with confirm dialogs |
-| Export | Filtered CSV or Excel, audit log entry per export with the filter criteria captured |
+| Multi-select | Checkbox column on the grid; "select all" applies to filtered rows only |
+| Bulk actions | Disable, enable, delete, change department, add/remove from group — all with confirm dialogs |
+| Export | Filtered CSV or Excel; audit log entry per export with the filter criteria captured |
+| View filters | Toolbar buttons for *Alle Nutzer* / *Aktive Nutzer* / *Inaktive Nutzer*; column chooser for show/hide; Excel-style filter on every column |
 
 ### Platform
 
 | Feature | Description |
 |---|---|
-| Razor Pages web UI | Windows Authentication (Kerberos) with Forms-auth fallback, antiforgery on all posts, CSP headers |
-| SwiftUI iOS app | Adaptive layout (`NavigationSplitView` on iPad, `NavigationStack` on iPhone), `@Observable` view models, OAuth 2.0 PKCE via AD FS, Face ID unlock |
-| Offline cache (iOS) | SwiftData snapshot of the last user list, banner indicates staleness |
-| Localisation | German (default) and English, `.resx` resources, locale-aware date formatting |
-| Accessibility | WCAG 2.1 AA: focus trapping in modals, ARIA live regions, keyboard navigation end-to-end |
+| ASP.NET Core 10 MVC | Server-rendered admin UI with Controllers + Views, matching the reference codebase's mental model |
+| Windows Authentication | True SSO via the Negotiate protocol (Kerberos primary, NTLM fallback); UPN resolved into a claim by `IClaimsTransformation`, cached by SID in `IMemoryCache` |
+| Syncfusion EJ2 ASP.NET Core | `ej-grid` for the journal list with dialog-mode editing, filtering, column chooser, paging, and toolbar buttons (under Syncfusion's Community License) |
+| Antiforgery | Enabled on every POST; tokens validated server-side |
+| Content-Security-Policy | Strict CSP with per-request nonces for inline scripts; no third-party origins beyond a configurable Syncfusion CDN entry |
+| Localisation | German (default) and English; `.resx` resources; locale-aware date formatting (`dd/MM/yyyy`) |
+| Accessibility | WCAG 2.1 AA: focus trapping in dialogs, ARIA live regions, keyboard navigation across the grid |
 
 ### Observability and compliance
 
 | Feature | Description |
 |---|---|
-| Append-only audit log | Field-level old/new values, actor UPN, IP, source (Web/API/MLRetrain), reason code on disable/delete actions (Stale/Termination/Reorg/Compromise), DB-level DENY DELETE/UPDATE |
+| Append-only audit log | Field-level old/new values, actor UPN, IP, source (`Web` / `System`), reason code on disable/delete actions (Stale / Termination / Reorg / Compromise), DB-level `DENY DELETE`, `DENY UPDATE` for the app identity |
 | Application log | Serilog with `MSSqlServer` sink, 90-day retention via SQL Agent |
-| Health endpoint | `/health` reports AD bind, SQL reachability, ML model load status |
-| Data subject reports | One-click export of everything the system holds about a given UPN |
+| Health endpoint | `/health` reports AD bind, SQL reachability, gMSA permissions |
+| Data subject reports | One-click export of every row pertaining to a single UPN — supports GDPR Articles 15 (access) and 17 (erasure) requests |
 
 ---
 
@@ -84,132 +97,110 @@ Key differentiators:
 
 | Category | Technology | Purpose |
 |---|---|---|
-| Web framework | ASP.NET Core 10 Razor Pages | Server-rendered admin UI, Windows Authentication, antiforgery |
-| Web API | ASP.NET Core 10 Controllers + JWT Bearer | REST surface for the iOS client |
-| Identity (directory) | Active Directory over LDAPS | Source of truth for identity; all password ops on port 636 |
-| Identity (OAuth) | AD FS (on-premises) | OAuth 2.0 Authorization Code with PKCE for the iOS app |
-| Persistence | SQL Server on-premises + EF Core | Sidecar store for custom attributes, audit, app logs, ML metrics |
-| ORM | Entity Framework Core | `RowVersion` concurrency, interceptor-based query timing |
-| Object mapping | Mapperly (`Riok.Mapperly`) | Compile-time source-generated mapping between domain types and API DTOs; no runtime reflection, AOT-friendly |
-| Validation | FluentValidation | One validator set shared between Razor models and API DTOs |
+| Web framework | ASP.NET Core 10 MVC | Controllers + Views server-rendered admin UI, matching the customer's existing codebase pattern |
+| UI components | Syncfusion EJ2 ASP.NET Core (v28.x) | Data grid, dialogs, date pickers, form controls under Syncfusion's free Community License |
+| Identity (directory) | Active Directory over LDAPS | Source of truth for identity attributes; all password operations on port 636 |
+| Auth | `Microsoft.AspNetCore.Authentication.Negotiate` | True SSO via Kerberos (NTLM fallback); domain-joined browsers send the user's existing Kerberos ticket — no login page |
+| Persistence | SQL Server `MADB` + EF Core 10 | Sidecar store for journal, lookups, audit, app logs, reconciliation queue |
+| ORM | Entity Framework Core | `RowVersion`/`Guid` concurrency, interceptor-based audit + query timing |
+| Object mapping | Mapperly (`Riok.Mapperly`) | Compile-time source-generated mapping between domain types and view models; no runtime reflection |
+| Validation | FluentValidation | One validator set shared between MVC view models and service-layer DTOs |
 | Logging | Serilog + `Serilog.Sinks.MSSqlServer` | Structured logs to SQL, 90-day retention |
-| Machine learning | ML.NET 3.x (`BinaryClassification.FastTree`, AutoML) | Stale account prediction, served via `PredictionEnginePool` |
-| Identity context | `ICurrentActor` abstraction (DI) | Surface-agnostic actor flow for Razor (Kerberos), API (JWT), `MLTrainer` (system), and `Reconciliation` worker. UPN resolved via `IClaimsTransformation` + SID-keyed `IMemoryCache`. |
-| Rate limiting | AspNetCoreRateLimit | 100 req/min per user on the API |
-| API versioning | URL-prefixed (`/api/v1/`) | Versioned routing from day one; additive non-breaking changes within a version |
-| iOS app | SwiftUI (iOS 26 / iPadOS 26) | Adaptive layout (`NavigationSplitView` on iPad, `NavigationStack` on iPhone), `@Observable` state |
-| iOS networking | `URLSession` async/await | Typed API client with Combine debounce on search |
-| iOS auth | `ASWebAuthenticationSession` + `LAContext` | PKCE login, Face ID / Touch ID unlock |
-| iOS storage | Keychain (biometric ACL) + SwiftData | Refresh token and offline snapshot |
-| Hosting | IIS with ANCM in-process | HTTPS-only, internal CA, gMSA application pool identity |
-| Scheduler | Windows Task Scheduler | Nightly `UserMgmt.MLTrainer` runs |
-| CI/CD | `dotnet publish` + Web Deploy, Xcode Cloud / Azure DevOps for iOS | Two parallel pipelines, one backend |
+| Identity context | `ICurrentActor` abstraction (DI) | Surface-agnostic actor flow for MVC (Negotiate-derived UPN) and background services (system actor); UPN resolved via `IClaimsTransformation` + SID-keyed `IMemoryCache` |
+| Rate limiting | AspNetCoreRateLimit | Configurable per-endpoint throttling for unattended automation |
+| Hosting | IIS with ANCM in-process or Kestrel-on-Windows-Server | HTTPS-only, internal CA, gMSA application-pool identity |
+| Scheduler | Windows Task Scheduler | Nightly maintenance jobs (audit log retention prune, expired-account scan) |
+| CI/CD | `dotnet publish` + Web Deploy | Single pipeline; built and tested on GitHub Actions Linux runners, deployed to Windows IIS |
 
 ---
 
 ## Architecture
 
-The system is a shared-service architecture. A single ASP.NET Core host on IIS terminates two client surfaces — Razor Pages (cookie auth) and JSON API (JWT Bearer). Both surfaces call the same service layer: `AdService`, `AttributeService`, `AuditService`, and `MlPredictor`. Actor identity flows through both surfaces via a single `ICurrentActor` abstraction, so the service layer never sees ASP.NET Core types. Active Directory is the system of record for identity. SQL Server is the sidecar — it stores the firm-specific attributes, the append-only audit log, the application log (Serilog), the ML model metrics, and a `ReconciliationQueue` for partial-state recovery (admin-resolved, not auto-retry — see [Cross-store consistency](#cross-store-consistency) below).
+The system is a thin web UI over a typed service layer. The MVC host on Windows Server (IIS in-process or Kestrel-with-HTTP.sys) terminates one client surface — Razor Views authenticated with Windows Negotiate. Controllers call the shared service layer: `AdService` (LDAPS, attribute-level CAS), `AttributeService` (EF Core sidecar), `AuditService` (append-only writes), and `JournalService` (the journal-domain orchestrator that combines AD and sidecar reads into a single `UserJournal` view-model).
 
-Cross-store writes (mainly Create User) follow an AD-first, SQL-second order. If the SQL sidecar insert fails after the AD object exists, the failure is logged to the audit trail with a high-visibility `PartialState` flag and the affected user is surfaced in the admin `ReconciliationQueue`. The system does not attempt automatic rollback of the AD change (AD replication makes compensation unreliable) and does not retry SQL writes that fail for non-transport reasons (concurrency or constraint violations require human resolution). Update flows are largely single-store — most AD attributes update AD; most custom attributes update SQL — so the cross-store partial-state window is narrowly bounded to Create.
+**Hybrid storage** is the architectural backbone. Active Directory is the system of record for the 12 identity, contact, and lifecycle attributes that already have native AD homes; the SQL sidecar (`MADB`) is the system of record for the 25 application-specific attributes (onboarding checklist, freeform notes, Anrede salutation, third-party account references, audit log, reconciliation queue) that AD cannot store cleanly. The AD schema is **never extended** — schema extensions are operationally irreversible, and the application-specific data is the wrong shape for AD anyway. See [Why journal data isn't all in AD](#why-journal-data-isnt-all-in-ad) for the full rationale.
 
-The ML.NET pipeline is deliberately out-of-process. A separate console app, `UserMgmt.MLTrainer`, computes objective behavioural labels from AD attribute history (forward-window inactivity over the prior 180 days), trains a `FastTree` binary classifier on those labels, and writes a serialized `.zip` model to disk. The audit log is never used as a label source; for the rationale see [Why our labels don't come from our own audit log](#why-our-labels-dont-come-from-our-own-audit-log). The web host loads the model via `PredictionEnginePool` on startup and serves predictions inline (<5ms per user).
-
-A standalone console utility, `UserMgmt.ADImport`, copies users, groups, and SQL sidecar rows from the production AD forest to a lab forest for demo and UAT use. It is read-only against production, refuses to run if its target matches the production domain, and re-maps the `manager` DN reference across forests.
+Cross-store writes (mainly Create User, and any sync between `ZeitBis` and AD's `accountExpires`) follow an AD-first, SQL-second order. If the SQL sidecar write fails after the AD object exists, the failure is logged to the audit trail with a high-visibility `PartialState` flag and the affected user is surfaced in the admin `ReconciliationQueue`. The system does not attempt automatic rollback of the AD change (AD replication makes compensation unreliable) and does not retry SQL writes that fail for non-transport reasons (concurrency or constraint violations require human resolution).
 
 ```mermaid
 graph TD
-    subgraph Clients
-        Browser[Browser<br/>Razor Pages]
-        iOS[iOS App<br/>SwiftUI]
+    subgraph Client
+        Browser[Browser<br/>Razor Views + Syncfusion EJ2]
     end
 
-    subgraph IIS["IIS Host (ANCM in-process)"]
-        Razor[Razor Pages<br/>Cookie auth]
-        API[API Controllers<br/>JWT Bearer]
+    subgraph IIS["IIS / Kestrel on Windows Server"]
+        MVC[Controllers<br/>Negotiate-authenticated]
     end
 
-    subgraph Services["Service Layer (shared)"]
-        ADSvc[AD Service<br/>LDAPS]
-        AttrSvc[Attribute Service<br/>EF Core]
-        AuditSvc[Audit Service]
-        MLPred[ML.NET Predictor<br/>PredictionEnginePool]
+    subgraph Services["Service Layer"]
+        Journal[JournalService<br/>composes AD + sidecar]
+        ADSvc[AdService<br/>LDAPS]
+        AttrSvc[AttributeService<br/>EF Core]
+        AuditSvc[AuditService<br/>append-only]
     end
 
     subgraph Data
-        AD[(Active Directory)]
-        SQL[(SQL Server<br/>UserMgmt DB)]
-        Model[(Model .zip<br/>on disk)]
+        AD[(Active Directory<br/>identity attributes)]
+        SQL[(SQL Server MADB<br/>journal, audit, queue)]
     end
 
     subgraph Background
-        Trainer[UserMgmt.MLTrainer<br/>Task Scheduler 02:00]
         Retry[Reconciliation Worker<br/>Hosted Service]
+        Scheduler[Windows Task Scheduler<br/>retention prune, expiry scan]
     end
 
-    Browser -->|Kerberos / Forms| Razor
-    iOS -->|OAuth 2.0 PKCE| ADFS[AD FS]
-    iOS -->|JWT Bearer| API
-    ADFS -.-> AD
-
-    Razor --> Services
-    API --> Services
+    Browser -->|Kerberos via Negotiate| MVC
+    MVC --> Journal
+    Journal --> ADSvc
+    Journal --> AttrSvc
+    Journal --> AuditSvc
 
     ADSvc -->|LDAPS :636| AD
     AttrSvc --> SQL
     AuditSvc --> SQL
-    MLPred --> Model
 
-    Trainer -->|Read attribute history| AD
-    Trainer -->|Read feature data| SQL
-    Trainer -->|Write model| Model
-    Trainer -->|Metrics| SQL
     Retry --> SQL
     Retry --> ADSvc
+    Scheduler --> SQL
+    Scheduler --> AD
 ```
 
 ---
 
 ## Code Structure
 
-The solution is split into a handful of focused projects. The web host and API share a service layer; the ML trainer and AD import tool are independent console apps; the iOS app is its own Xcode workspace.
-
 ```text
 ad-user-management/
 ├── src/
-│   ├── UserMgmt.Web/                  ASP.NET Core host (Razor Pages + API)
-│   │   ├── Pages/                     Razor Pages (Index, Edit, Groups, Audit)
-│   │   ├── Api/                       Versioned controllers (/api/v1/) for the iOS client
-│   │   ├── Auth/                      ICurrentActor impls (Kerberos, JWT), IClaimsTransformation
-│   │   ├── Mappers/                   Mapperly partial classes (Api DTOs ↔ Domain)
-│   │   ├── wwwroot/                   Static assets, CSS, CSP-compatible JS
-│   │   └── Program.cs                 DI, auth, Serilog, ML pool, health checks
-│   ├── UserMgmt.Core/                 Domain + service layer (shared)
-│   │   ├── Services/                  AdService, AttributeService, AuditService
+│   ├── UserMgmt.Web/                  ASP.NET Core MVC host
+│   │   ├── Controllers/               AdminUserJournal, AcademicTitle, Anrede, Audit, Reconciliation, Home
+│   │   ├── Views/
+│   │   │   ├── AdminUserJournal/      ej-grid list + dialog edit (matching the customer's reference pattern)
+│   │   │   ├── AcademicTitle/         Lookup admin
+│   │   │   ├── Anrede/                Lookup admin
+│   │   │   ├── Audit/                 Audit log view filtered by UPN
+│   │   │   ├── Reconciliation/        Partial-state queue admin
+│   │   │   └── Shared/                _Layout, _ValidationScriptsPartial, _ViewImports, _ViewStart
+│   │   ├── Auth/                      ICurrentActor (Negotiate impl), IClaimsTransformation
+│   │   ├── Mappers/                   Mapperly partial classes (Sidecar entities ↔ View models)
+│   │   ├── wwwroot/                   Static assets, CSS, CSP-compatible JS, Syncfusion theme
+│   │   └── Program.cs                 DI, Negotiate auth, Serilog, health checks, antiforgery, CSP
+│   ├── UserMgmt.Core/                 Domain + service layer
 │   │   ├── Auth/                      ICurrentActor abstraction, Actor record
-│   │   ├── Ml/                        UserFeatures, StalePrediction, MlPredictor
-│   │   ├── Validation/                FluentValidation validators
-│   │   └── Ldap/                      LdapFilterEscape, singleton AdConnection per DC, async wrappers
-│   ├── UserMgmt.Data/                 EF Core DbContext + migrations
-│   │   ├── Entities/                  UserAttributes, AuditLog, AppLog, ReconciliationQueue
-│   │   └── Interceptors/              Query timing, audit interceptor
-│   ├── UserMgmt.MLTrainer/            Console — nightly retrain job
-│   ├── UserMgmt.ADImport/             Console — prod → dev forest import
+│   │   ├── Common/                    Result, PagedResult, error types
+│   │   ├── Domain/                    AdUser, UserJournal (view-model), UserJournalRecord, AcademicTitle, Anrede, OnboardingChecklist
+│   │   ├── Ldap/                      IAdConnection, AdConnection, LdapFilterEscape, LdapsRequiredException
+│   │   ├── Services/                  IAdService, IAttributeService, IAuditService, IJournalService
+│   │   └── Validation/                FluentValidation validators
+│   ├── UserMgmt.Data/                 EF Core
+│   │   ├── UserMgmtDbContext.cs
+│   │   ├── Entities/                  UserJournalRecord, AcademicTitle, Anrede, AuditEntry, AppLog, ReconciliationQueue
+│   │   ├── Interceptors/              AuditSaveChangesInterceptor
+│   │   ├── Services/                  AttributeService, AuditService, JournalService (depend on UserMgmtDbContext)
+│   │   └── Migrations/                EF Core migrations
 │   └── UserMgmt.Website/              Marketing site (Razor Pages / static)
-├── ios/
-│   └── UserMgmt.iOS/                  Xcode project (SwiftUI, iOS 26 / iPadOS 26)
-│       ├── Features/                  Adaptive views (size-class-aware layouts)
-│       │   ├── Login/                 LoginView, ASWebAuthenticationSession
-│       │   ├── UserList/              UserListView, filter chips, search, ML+heuristic badges
-│       │   ├── UserDetail/            Tabs: Identity, Org, Custom, Audit
-│       │   └── Settings/
-│       ├── Services/                  ApiClient, KeychainStore, SwiftDataCache
-│       └── Models/                    UserDto, StaleRiskLevel, Role
 ├── tests/
-│   ├── UserMgmt.Core.Tests/           xUnit — services, validators, LDAP escape
-│   ├── UserMgmt.Web.Tests/            Integration tests for Razor + API
-│   ├── UserMgmt.MLTrainer.Tests/      Model training fixtures
-│   └── UserMgmt.iOS.Tests/            Swift Testing — view models, API client, adaptive layout
+│   └── UserMgmt.Core.Tests/           xUnit + NSubstitute + Shouldly + SQLite-in-memory
 ├── deploy/
 │   ├── iis/                           web.config, ANCM settings
 │   ├── sql/                           Schema, seed, retention SQL Agent jobs
@@ -217,25 +208,36 @@ ad-user-management/
 └── README.md
 ```
 
-The class diagram below focuses on the server-side service layer. The iOS models are not repeated here — they are straightforward DTOs over the API.
+### Class diagram (server-side service layer)
 
 ```mermaid
 classDiagram
     class IAdService {
         <<interface>>
         +SearchAsync(query, page) PagedResult~AdUser~
-        +CreateAsync(dto, password) Task~AdUser~
-        +UpdateAsync(upn, changes, ifMatch) Task
-        +SetEnabledAsync(upn, enabled) Task
-        +ResetPasswordAsync(upn, password) Task
-        +AddToGroupAsync(upn, groupDn) Task
+        +GetAsync(upn) AdUser?
+        +CreateAsync(dto, password) Result~AdUser, CreateUserError~
+        +UpdateAsync(upn, changes, ifMatch) Result~Unit, UpdateUserError~
+        +SetEnabledAsync(upn, enabled, reason) Result~Unit, EnableUserError~
+        +ResetPasswordAsync(upn, password) Result~Unit, ResetPasswordError~
+        +AddToGroupAsync(upn, groupDn) Result~Unit, GroupMembershipError~
+        +RemoveFromGroupAsync(upn, groupDn) Result~Unit, GroupMembershipError~
     }
 
     class IAttributeService {
         <<interface>>
-        +GetAsync(upn) UserAttributes
-        +UpsertAsync(upn, dto) Task
-        +SetExcludeFromMlAsync(upn, bool) Task
+        +GetAsync(upn) UserJournalRecord?
+        +UpsertAsync(upn, dto, ifMatchToken) Result~UserJournalRecord, ConcurrencyConflict~
+        +UpdateChecklistAsync(upn, checklist, ifMatchToken) Result~Unit, ConcurrencyConflict~
+        +SetNotesAsync(upn, notes, ifMatchToken) Result~Unit, ConcurrencyConflict~
+    }
+
+    class IJournalService {
+        <<interface>>
+        +GetJournalAsync(upn) UserJournal?
+        +SearchAsync(query, filters, page) PagedResult~UserJournal~
+        +CreateJournalAsync(dto, password) Result~UserJournal, CreateJournalError~
+        +DeactivateAsync(upn, zeitBis, reason) Result~Unit, DeactivateError~
     }
 
     class IAuditService {
@@ -244,37 +246,57 @@ classDiagram
         +QueryForUserAsync(upn, page) PagedResult~AuditEntry~
     }
 
-    class IMlPredictor {
-        <<interface>>
-        +Predict(features) StalePrediction
-        +IsModelLoaded bool
-    }
-
-    class AdService {
-        -LdapConnection connection
-        -LdapFilterEscape escape
-    }
-
-    class AttributeService {
-        -UserMgmtDbContext db
-    }
-
-    class AuditService {
-        -UserMgmtDbContext db
-    }
-
-    class MlPredictor {
-        -PredictionEnginePool~UserFeatures,StalePrediction~ pool
-    }
-
-    class UserAttributes {
+    class UserJournal {
         +string Upn
-        +string EmployeeId
-        +string CostCenter
-        +string ContractType
-        +float StaleRiskScore
-        +bool ExcludeFromMLScoring
-        +byte[] RowVersion
+        +string Vorname
+        +string Nachname
+        +string? Kuerzel
+        +string? Sid
+        +AcademicTitle AcademicTitle
+        +Anrede Anrede
+        +DateTime ZeitVon
+        +DateTime? ZeitBis
+        +bool IsActive
+        +string? EMail
+        +string? TelNr
+        +string? Platz
+        +string? Rechner
+        +OnboardingChecklist Checklist
+        +Notes Notes
+        +ThirdPartyAccounts Accounts
+        +Guid RowVersion
+    }
+
+    class UserJournalRecord {
+        +int Id
+        +string Upn
+        +int AnredeId
+        +int AcademicTitleId
+        +string? Kuerzel
+        +string? Rechner
+        +OnboardingChecklistFlags Flags
+        +string? Notes01
+        +string? Notes02
+        +string? Notes03
+        +string? Notes04
+        +string? Notes05
+        +string? KontoFuerAutoDesk
+        +bool KontoFuerAutodeskErstellt
+        +string? KontoFuerAdobe
+        +bool KontoFuerAdobeErstellt
+        +string? KontoFuerSolibri
+        +bool KontoFuerSolibriErstellt
+        +Guid RowVersion
+    }
+
+    class AcademicTitle {
+        +int Id
+        +string Title
+    }
+
+    class Anrede {
+        +int Id
+        +string Title
     }
 
     class AuditEntry {
@@ -290,239 +312,239 @@ classDiagram
         +string? Reason
     }
 
-    class UserFeatures {
-        +float DaysSinceLastLogin
-        +float DaysSinceCreated
-        +string ContractType
-        +string Department
-        +bool IsCurrentlyActive
-        +float LoginFrequencyLast90Days
-        +int GroupCount
-        +bool HasManager
+    class ReconciliationQueue {
+        +long Id
+        +DateTime Timestamp
+        +string TargetUpn
+        +string Operation
+        +string Payload
+        +string Status
+        +string? ResolvedBy
+        +DateTime? ResolvedAt
     }
 
-    class StalePrediction {
-        +bool PredictedLabel
-        +float Probability
-        +float Score
-    }
-
-    IAdService <|.. AdService
-    IAttributeService <|.. AttributeService
-    IAuditService <|.. AuditService
-    IMlPredictor <|.. MlPredictor
-
-    AttributeService --> UserAttributes
-    AuditService --> AuditEntry
-    MlPredictor --> UserFeatures
-    MlPredictor --> StalePrediction
+    IJournalService ..> IAdService
+    IJournalService ..> IAttributeService
+    IJournalService ..> IAuditService
+    UserJournal --> AcademicTitle
+    UserJournal --> Anrede
+    IAttributeService --> UserJournalRecord
+    IAuditService --> AuditEntry
 ```
 
 ---
 
 ## Sequence Diagrams
 
-### Create user (Razor Pages)
+### Create a new employee journal
 
-The create flow is the canonical "happy path" — it exercises AD validation, LDAPS password write, SQL sidecar insert, and the audit trail in a single request. A partial success (AD succeeded, SQL failed) is surfaced to the admin, not silently swallowed.
+A new hire flows through: admin fills the create dialog (Vorname/Nachname/OU/start date/Anrede/AcademicTitle/etc.) → AD object created with LDAPS password write → SQL `UserJournalRecord` row inserted with the application-specific data → audit row recorded. On sidecar failure, the AD object exists; the failure is surfaced in the Reconciliation queue for manual resolution.
 
 ```mermaid
 sequenceDiagram
     actor Admin
-    participant Razor as Razor Page
+    participant View as AdminUserJournal/Create
+    participant Ctrl as AdminUserJournalController
+    participant Jrn as JournalService
     participant AdSvc as AdService
     participant AttrSvc as AttributeService
     participant Audit as AuditService
     participant AD as Active Directory
-    participant SQL as SQL Server
+    participant SQL as SQL MADB
 
-    Admin->>Razor: Submit Create form (UPN, names, OU, password)
-    Razor->>Razor: FluentValidation — fail fast on bad input
-    Razor->>AdSvc: CreateAsync(dto, password)
+    Admin->>View: Submit Create form
+    View->>Ctrl: POST /AdminUserJournal/Insert
+    Ctrl->>Ctrl: FluentValidation
+    Ctrl->>Jrn: CreateJournalAsync(dto, password)
+
+    Jrn->>AdSvc: CreateAsync(NewUserDto, password)
     AdSvc->>AD: Search (uniqueness check on UPN, escaped)
     AD-->>AdSvc: Not found
-    AdSvc->>AD: Add user object in chosen OU
-    AdSvc->>AD: Set unicodePwd over LDAPS
-    AdSvc->>AD: Set pwdLastSet = 0, clear ACCOUNTDISABLE
+    AdSvc->>AD: AddRequest in chosen OU
+    AdSvc->>AD: ModifyRequest (unicodePwd + pwdLastSet=0 + clear ACCOUNTDISABLE)
+    AdSvc->>AD: ModifyRequest (accountExpires = ZeitBis if set)
     AD-->>AdSvc: OK
-    AdSvc-->>Razor: AdUser (sAMAccountName, UPN)
+    AdSvc-->>Jrn: AdUser
 
-    Razor->>AttrSvc: UpsertAsync(UPN, customAttrs)
-    AttrSvc->>SQL: INSERT UserAttributes
+    Jrn->>AttrSvc: UpsertAsync(UPN, UserJournalRecord)
     alt SQL succeeds
+        AttrSvc->>SQL: INSERT UserJournalRecord (interceptor emits audit rows)
         SQL-->>AttrSvc: OK
+        Jrn->>Audit: RecordAsync(Action=CreateJournal)
+        Audit->>SQL: INSERT AuditLog (password NEVER logged)
+        Jrn-->>Ctrl: UserJournal
+        Ctrl-->>Admin: Redirect to journal detail with toast
     else SQL fails
         SQL-->>AttrSvc: Error
-        AttrSvc-->>Razor: Partial success (AD ok, SQL missing)
-        Note over Razor: Warning banner, flag PartialState in audit, enqueue in ReconciliationQueue for admin resolution
+        Jrn->>Audit: RecordAsync(Action=CreateUser-PartialState)
+        Audit->>SQL: INSERT AuditLog
+        Jrn->>SQL: INSERT ReconciliationQueue (Operation=CreateUser-SidecarMissing)
+        Jrn-->>Ctrl: Result.Failure(PartialSuccess(adUser, sidecarError))
+        Ctrl-->>Admin: Warning banner + queue link
     end
-
-    Razor->>Audit: RecordAsync(Action=Create, Actor, Target=UPN)
-    Audit->>SQL: INSERT AuditLog (password NEVER logged)
-    Razor-->>Admin: Redirect to user detail with toast
 ```
 
-### iOS login and stale-risk-gated user list
+### Tick an onboarding checklist item
 
-The iOS flow (iPhone and iPad share this path) demonstrates the split between the identity provider (AD FS), the API, and the ML.NET predictor. Face ID unlocks the keychain-stored refresh token on subsequent launches so the user never sees the web view again unless the refresh token expires.
+The high-frequency operation. Single sidecar write; AD untouched. Audit interceptor captures the field-level change automatically.
 
 ```mermaid
 sequenceDiagram
-    actor User
-    participant App as iOS App
-    participant Keychain as iOS Keychain
-    participant ADFS as AD FS
-    participant API as ASP.NET Core API
-    participant AdSvc as AdService
-    participant MLPred as MlPredictor
+    actor Admin
+    participant Grid as ej-grid (Syncfusion)
+    participant Ctrl as AdminUserJournalController
+    participant Jrn as JournalService
     participant AttrSvc as AttributeService
+    participant SQL as SQL MADB
 
-    User->>App: Launch
-    App->>Keychain: Read refresh token (Face ID)
-    alt Token present and valid
-        Keychain-->>App: Refresh token
-        App->>ADFS: POST /token (refresh)
-        ADFS-->>App: New access token (1h)
-    else No token
-        App->>ADFS: ASWebAuthenticationSession → /authorize (PKCE)
-        User->>ADFS: Sign in
-        ADFS-->>App: Authorization code
-        App->>ADFS: POST /token (code + verifier)
-        ADFS-->>App: Access + refresh tokens
-        App->>Keychain: Store refresh (biometric ACL)
+    Admin->>Grid: Tick "OpenVpnZertifikat" in dialog
+    Grid->>Ctrl: POST /AdminUserJournal/Update (DataManager)
+    Ctrl->>Jrn: UpdateChecklistAsync(upn, checklist, ifMatchToken)
+    Jrn->>AttrSvc: UpdateChecklistAsync(upn, checklist, ifMatchToken)
+    AttrSvc->>SQL: UPDATE UserJournalRecord SET OpenVpnZertifikat = 1, RowVersion = NEWID()
+    Note over SQL: AuditSaveChangesInterceptor emits AuditEntry<br/>(FieldName=OpenVpnZertifikat, Old=False, New=True)
+    alt RowVersion matches
+        SQL-->>AttrSvc: OK
+        AttrSvc-->>Jrn: UserJournalRecord
+        Jrn-->>Ctrl: Result.Success
+        Ctrl-->>Grid: 200 OK with refreshed row
+    else Stale RowVersion
+        SQL-->>AttrSvc: DbUpdateConcurrencyException
+        AttrSvc-->>Jrn: Result.Failure(ConcurrencyConflict)
+        Jrn-->>Ctrl: Result.Failure
+        Ctrl-->>Grid: 409 Conflict; client re-fetches and prompts re-edit
     end
-
-    App->>API: GET /users?page=1&pageSize=50 (Bearer)
-    API->>API: Validate JWT, map role claims
-    API->>AdSvc: SearchAsync(query)
-    AdSvc-->>API: AD users
-    API->>AttrSvc: GetManyAsync(UPNs)
-    AttrSvc-->>API: Custom attributes + RowVersion
-
-    loop For each user not excluded
-        API->>MLPred: Predict(features)
-        MLPred-->>API: StalePrediction (score)
-    end
-
-    API-->>App: PagedResult with merged users + risk
-    App->>App: Cache to SwiftData for offline
-    App-->>User: Render adaptive layout (NavigationSplitView on iPad, NavigationStack on iPhone)
 ```
 
-### Nightly ML retrain with drift guard
+### Edit an AD-resident identity attribute
 
-The trainer is out-of-process by design — a crash or long run cannot take the web host down. The drift guard protects the production serving path from a newly regressed model.
+Editing `Vorname` writes only to AD; SQL sidecar is untouched.
 
 ```mermaid
 sequenceDiagram
-    participant Scheduler as Task Scheduler
-    participant Trainer as UserMgmt.MLTrainer
-    participant SQL as SQL Server
-    participant Disk as Model .zip on disk
-    participant Web as IIS / Web Host
+    actor Admin
+    participant Grid as ej-grid
+    participant Ctrl as AdminUserJournalController
+    participant Jrn as JournalService
+    participant AdSvc as AdService
+    participant Audit as AuditService
+    participant AD as Active Directory
+    participant SQL as SQL MADB
 
-    Scheduler->>Trainer: Start (02:00 daily)
-    Trainer->>AD: Read attribute history (180-day window)
-    AD-->>Trainer: Login/password/group activity per user
-    Trainer->>Trainer: Compute objective behavioural labels (forward-window inactivity)
-    Trainer->>SQL: SELECT feature data (excluding Source='MLRetrain' rows)
-    SQL-->>Trainer: Feature set
-    Trainer->>Trainer: FastTree + AutoML cross-validation
-    Trainer->>SQL: SELECT previous AUC from MLModelMetrics
-    SQL-->>Trainer: Previous AUC
-
-    alt New AUC drop > 5%
-        Trainer->>SQL: INSERT MLModelMetrics (status=Rejected)
-        Trainer-->>Scheduler: Exit, keep old model
-    else Acceptable
-        Trainer->>Disk: Write model.zip (atomic replace)
-        Trainer->>SQL: INSERT MLModelMetrics (AUC, F1, status=Accepted)
-        Note over Web: Next prediction reloads pool lazily
+    Admin->>Grid: Edit Vorname
+    Grid->>Ctrl: POST /AdminUserJournal/Update
+    Ctrl->>Jrn: UpdateAsync(upn, {Vorname: "Maria"}, ifMatch)
+    Jrn->>AdSvc: UpdateAsync(upn, {givenName: "Maria"}, ifMatch)
+    AdSvc->>AD: ModifyRequest (Delete-old "Maria-Alt" + Add-new "Maria" on givenName)
+    alt CAS succeeds
+        AD-->>AdSvc: OK
+        AdSvc-->>Jrn: Result.Success
+        Jrn->>Audit: RecordAsync(Action=Update, Field=givenName)
+        Audit->>SQL: INSERT AuditLog
+        Jrn-->>Ctrl: Result.Success
+        Ctrl-->>Grid: 200 OK
+    else CAS fails (stale value)
+        AD-->>AdSvc: noSuchAttribute
+        AdSvc-->>Jrn: Result.Failure(ConcurrencyConflict("givenName", currentValue))
+        Jrn-->>Ctrl: Result.Failure
+        Ctrl-->>Grid: 409 Conflict
     end
 ```
 
 ---
 
-## Why our labels don't come from our own audit log
+## Why journal data isn't all in AD
 
-A naïve design for a stale-account predictor reads disable/delete rows from its own audit log as positive training examples, and treats currently active accounts as negatives. We considered that approach and rejected it.
+A natural first instinct is to put every employee attribute into Active Directory, since AD already stores identity. We considered that and rejected it for the application-specific journal data.
 
-**The circularity problem.** If admins decide which accounts to disable partly based on the model's score, then those disables flow back into the training set as confirmed positives. The model reinforces its own past decisions, including its mistakes, and errors become self-fulfilling. In a small-to-mid org with 50–200 disable events per year, this feedback loop dominates the signal within a few retrain cycles.
+**AD is an identity directory, not an application database.** AD is tuned for attribute lookup against a population via LDAP filters, with multi-master replication across domain controllers. Per-attribute writes are slow (50–200 ms each, plus replication lag), search expressivity is limited to LDAP filter syntax, and there is no native support for compound queries, joins, or rich audit trails. For 5 contact fields per user that read 1 000× more than they write, the trade-off is acceptable — those are identity. For 20+ application booleans that get toggled multiple times during an onboarding flow, AD is the wrong tool.
 
-**Selection and label-confounding bias.** Admins typically disable accounts using heuristics ("no login for 90 days"). A model trained on those labels just re-learns the heuristic and adds no predictive value over a SQL `WHERE` clause. Worse, "disabled" doesn't equal "stale" — disables also happen for termination, reorg, role change, and compromise. Without separating these, every disable label is contaminated.
+**Schema extensions are irreversible.** Adding ~25 custom attributes to your customer's AD forest would require Schema Admin rights, propagate across all DCs via `schemaUpdateNow`, and stay in the schema forever — Microsoft does not support attribute removal once a schema extension has been applied. If the application is ever retired the vestigial attributes remain in the customer's directory schema indefinitely. The hybrid model leaves AD's schema unmodified.
 
-**Our approach.** Labels are computed objectively from AD's own behavioural data, never from admin actions:
+**The application data has the wrong shape for AD.** Most journal fields are:
 
-- For each historical user-month, the trainer reads `lastLogonTimestamp`, `msDS-LastSuccessfulInteractiveLogonTime`, `pwdLastSet`, and group membership snapshots over a 180-day window.
-- A label of "stale" is assigned to any user with no interactive login, no password change, and no group-membership change in a 30-day forward window from the labelling instant.
-- The audit log is used only for *features* (e.g. days-since-last-admin-recorded-password-reset).
-- Rows with `Source='MLRetrain'` are always excluded from any training input, even feature inputs, to eliminate residual feedback paths.
+- **Booleans on a checklist** (`AdAccountAnlegen`, `MailpostfachErstellen`, `OpenVpnZertifikat`, …): no native AD boolean attribute family; would have to be packed into Exchange-defined `extensionAttribute1–15` slots as encoded strings, losing typing.
+- **Multiple freeform note fields** (`Notes01`–`Notes05`): AD has one `info` attribute capped at 1024 characters. Multiple long-text fields would have to be JSON-packed, losing search and per-field audit.
+- **Application-specific third-party account references** (Autodesk / Adobe / Solibri): same problem.
+- **Lookup foreign keys** (`AnredeId`, `AcademicTitleId`): AD has no relational-style lookups; the lookup table itself has to live somewhere.
 
-**Additional safeguards.**
+**The hybrid model is what the application actually needs.** AD is the system of record for the 12 identity / contact / lifecycle attributes that already have well-typed native homes; the SQL sidecar (`MADB`) is the system of record for the 25 application-specific attributes. The journal view-model reads from both and presents them unified. Writes split by destination: identity-attribute changes go to AD via `AdService.UpdateAsync`; journal/checklist/notes changes go to SQL via `JournalService` / `AttributeService`. No duplication.
 
-- Every Disable/Delete audit entry carries a `Reason` code (Stale, Termination, Reorg, Compromise) entered by the admin in the confirm dialog. This is a compliance and forensics win independent of ML.
-- The UI shows a transparent heuristic flag (`lastLogon > 90d`) alongside the ML score. Admins see both and can challenge the model on any user.
-- The nightly drift guard rejects a retrained model whose AUC drops more than 5% versus the previous accepted model, using a held-out test set drawn from a strictly prior time period.
+### The 12 AD-resident attributes
 
-The trade-off is that we forgo the convenience of "the audit log is the training set" and accept a more complex trainer that has to walk AD attribute history. In return, the model's predictions are not contaminated by its own influence on the world it observes — which is what makes the score meaningful as evidence in any compliance review.
+| AD attribute | Journal field | Notes |
+|---|---|---|
+| `userPrincipalName` | `Upn` | Identity key |
+| `sAMAccountName` | `Aduser` | Logon name |
+| `givenName` | `Vorname` | First name |
+| `sn` | `Nachname` | Surname |
+| `initials` | `Kuerzel` | Short code (max 6 chars in AD) |
+| `objectSid` | `Sid` | Read-only system identity |
+| `personalTitle` | `AcademicTitle.Title` | Dr./Prof./…; mirrored from the lookup row at write time |
+| `mail` | `EMail` | Primary email |
+| `telephoneNumber` | `TelNr` | Phone |
+| `physicalDeliveryOfficeName` | `Platz` | Seat/office location |
+| `accountExpires` | `ZeitBis` | Native AD account expiration |
+| `userAccountControl & ACCOUNTDISABLE` | `IsActive` (inverse) | Account enabled state |
+
+Everything else lives in `UserJournalRecord` on `MADB`.
 
 ---
 
 ## Cross-store consistency
 
-AD and SQL are two independent stores with no distributed transaction across them. There is no two-phase commit, no Microsoft DTC across LDAP and SQL, no built-in saga middleware. The architecture takes a pragmatic position on the partial-state problem rather than pretending it can be eliminated.
+Active Directory and SQL Server are two independent stores with no distributed transaction across them. There is no two-phase commit, no Microsoft DTC across LDAP and SQL, no built-in saga middleware. The architecture takes a pragmatic position on the partial-state problem rather than pretending it can be eliminated.
 
-**Write ordering.** Cross-store writes — mainly Create User — follow AD-first, SQL-second. The AD object must exist before the SQL sidecar row can reference its UPN.
+**Write ordering.** Cross-store writes — Create Journal and any `ZeitBis` ↔ `accountExpires` sync — follow AD-first, SQL-second. The AD object must exist before the SQL sidecar row can reference its UPN.
 
 **Failure handling.** If the SQL sidecar insert fails after the AD object exists:
 
 - The failure is logged to the audit trail with a high-visibility `PartialState` flag.
 - The affected user is surfaced in the admin `ReconciliationQueue`.
-- The web UI shows a warning banner on the original action and on the affected user's detail page until the partial state is resolved.
+- The web UI shows a warning banner on the original action and on the affected user's journal page until the partial state is resolved.
 
 **What the system does *not* do:**
 
 - It does not attempt automatic rollback of the AD change. AD replication makes compensation unreliable: the new object may already have been observed by other DCs, and the rollback can itself fail.
 - It does not auto-retry SQL writes that fail for non-transport reasons. Concurrency conflicts (`RowVersion` mismatch) and constraint violations indicate the application's mental model of the data has diverged from reality; retrying the same operation will not help. These require human resolution.
 
-**Update flows are largely single-store.** Most AD attribute updates touch only AD; most custom-attribute updates touch only SQL. The set of `UserAttributes` fields (`CostCenter`, `ContractType`, `EmployeeId`) is not mirrored in AD, so once a user is created the cross-store partial-state window is narrow.
+**Update flows are largely single-store.** Most AD attribute updates touch only AD; most journal/checklist updates touch only SQL. The cross-store partial-state window is narrow — bounded to Create Journal and the occasional `accountExpires` sync.
 
-**Concurrency primitives.** AD attribute changes use LDAP attribute-level CAS via "delete-old-value, add-new-value" in a single modify request — the only properly atomic primitive AD offers. `whenChanged` is informational and not safe for concurrency control. SQL changes use `RowVersion`.
+**Concurrency primitives.** AD attribute changes use LDAP attribute-level CAS via "delete-old-value, add-new-value" in a single modify request — the only properly atomic primitive AD offers. `whenChanged` is informational and not safe for concurrency control. SQL changes use a `Guid` concurrency token rotated by the application on every successful save (an `IsConcurrencyToken()` configuration on the `UserJournalRecord.RowVersion` property).
 
 ---
 
 ## Roadmap
 
-This project is currently at **specification stage**. No production code has shipped. The roadmap below tracks the path from spec to v1 release.
+This project is currently at **specification stage**. The M1 service layer has shipped (AD operations, sidecar attribute service, audit log, reconciliation queue). The roadmap below tracks the path from the current state to v1 release of the journal-domain application.
 
 | Milestone | Scope | Status |
 |---|---|---|
-| M0 — Specification | System design, data model, security, compliance mapping | Complete |
-| M1 — Service layer | `AdService`, `AttributeService`, `AuditService` with unit tests | Planned |
-| M2 — Razor web UI | User list, search, filters, edit dialog, OU picker | Planned |
-| M3 — REST API | JWT Bearer, rate limiting, paginated endpoints | Planned |
-| M4 — iOS app | SwiftUI adaptive layout (iPhone + iPad), PKCE login, Face ID, SwiftData offline cache | Planned |
-| M5 — ML.NET | Trainer console app with objective behavioural labels, prediction pool, drift guard, heuristic-comparison UI | Planned |
-| M6 — Compliance hardening | Append-only audit enforcement, DPIA sign-off, ISO 27001 evidence pack | Planned |
-| M7 — AD import tool | Prod → dev forest import with dry-run and safety check | Planned |
+| M0 — Specification | System design, data model, security, compliance mapping, pivot to journal domain | Complete |
+| M1 — AD + sidecar service layer | `AdService`, `AttributeService`, `AuditService` with audit interceptor, append-only enforcement, attribute-level CAS, reconciliation queue | Complete |
+| M2 — Journal domain layer | `UserJournalRecord` entity, `AcademicTitle` and `Anrede` lookups, `IJournalService` that orchestrates AD + sidecar reads/writes into a unified `UserJournal` view-model, plus unit tests | Planned |
+| M3 — Web UI: journal list and edit | MVC Controllers + Views, Syncfusion `ej-grid` admin view with dialog edit, OU picker, password generator, lookups admin, Windows Negotiate auth wiring, antiforgery, CSP | Planned |
+| M4 — Web UI: audit and reconciliation | Audit log view filtered by UPN; ReconciliationQueue admin actions (resolve, cancel, replay) | Planned |
+| M5 — Bulk operations and export | Multi-select bulk actions; CSV/Excel export with filter-criteria audit | Planned |
+| M6 — Compliance hardening | DPIA documentation, ISO 27001 Annex A evidence pack, retention SQL Agent jobs, gMSA setup scripts | Planned |
+| M7 — AD import tool | `UserMgmt.ADImport` console: read-only prod → dev forest copy with safety checks | Planned |
 | M8 — Product website | Marketing site, Impressum, demo form | Planned |
 
-### Explicitly deferred (v2)
+### Explicitly deferred (v2 or later)
 
-- User photo display and upload (`thumbnailPhoto` read/write).
-- Anomalous login detection (second ML model, real-time event stream).
-- Push notifications for high-risk accounts (APNs).
-- Offline write queuing on iOS.
-- Full onboarding and offboarding workflows (chained account + mailbox + home directory + HR notify).
-- On-device Foundation Models for natural-language search of the user list (iOS 26+).
+- **Native iOS (iPhone + iPad) app.** Originally scoped as a portfolio piece; deferred indefinitely so it doesn't block customer breadth. Will be revisited once the customer's web-side scope is delivered and stable.
+- **ML.NET stale-account prediction.** Useful but not customer-driven. Defer until v1.1; when added, train on objective behavioural labels from AD attribute history (not the audit log), publish field-level rationale, surface side-by-side with a transparent heuristic — these principles are pinned in the project's design memory.
+- **REST API surface for external clients.** Not needed without a native client in scope. Add when a downstream system (HR sync, IT-asset register, helpdesk ticketing) is identified as a consumer.
+- **Push notifications, anomalous-login detection, offline write queuing.** Larger-scope features that orbit the core journal use case; defer until v2.
+- **User photo (`thumbnailPhoto`) read/write.** Low value, awkward over LDAP; deferred to v2.
 
 ---
 
 ## Status
 
-**Work in Progress — specification grilled and approved; implementation underway.**
+**Work in Progress — M0 specification reshaped around the customer's journal domain; M1 service layer shipped and on `main`; M2 begins the journal-domain layer.**
 
-All architectural decisions, data schemas, security controls, and compliance mappings in this document are drawn from the approved v1.0 specification, which has been pressure-tested against the failure modes a real deployment will encounter (cross-store consistency, dual concurrency, ML feedback loops). The repository will be progressively populated through the milestones above; this README will be updated with screenshots, benchmarks, and build status badges as each milestone lands.
+All architectural decisions in this document — hybrid storage, Negotiate SSO, attribute-level CAS, append-only audit, reconciliation queue, schema-extension avoidance — are drawn from the pivoted v1.0 specification, which has been pressure-tested against the failure modes a real deployment will encounter. The repository will be progressively populated through the milestones above; this README will be updated with screenshots, benchmarks, and build-status badges as each milestone lands.
 
 ---
 
