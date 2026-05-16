@@ -16,11 +16,17 @@ export is read-only against production; the import is hard-pinned to
 
 ### `Export-AdUsersAndGroups.ps1`
 
-- Connects to a DC in `ap-architekten.local`.
-- Asserts the bound forest is `ap-architekten.local` and aborts
-  otherwise.
-- Enumerates `Get-ADUser` and `Get-ADGroup` under an optional
-  `-SearchBase` (default: the whole domain).
+- Connects to a DC in `ap-architekten.local` over raw LDAP using
+  `System.DirectoryServices.DirectoryEntry` /
+  `System.DirectoryServices.DirectorySearcher`. The script does NOT
+  require the `ActiveDirectory` PowerShell module (no RSAT) and does
+  NOT require Active Directory Web Services (ADWS, port 9389) on the
+  target DC. Only the LDAP port (389 cleartext by default, or 636
+  over TLS when `-UseLdaps` is supplied) must be reachable.
+- Asserts the bound DC's `rootDSE.defaultNamingContext` ends with
+  `DC=ap-architekten,DC=local` and aborts otherwise.
+- Enumerates user and group objects under an optional `-SearchBase`
+  (default: the rootDSE's `defaultNamingContext`).
 - Skips system accounts (`krbtgt`, `Guest`, `Administrator`,
   `DefaultAccount`, legacy `IUSR_*` / `IWAM_*` / `SQLServer*` /
   `MSOL_*` service accounts) and disabled accounts (unless
@@ -28,11 +34,11 @@ export is read-only against production; the import is hard-pinned to
 - Skips built-in groups (`Domain Admins`, `Enterprise Admins`,
   `Schema Admins`, `Administrators`, `Users`, `Guests`, `Replicator`)
   and anything under `CN=Builtin,...`.
-- Resolves manager DNs and group member DNs to `SamAccountName`s at
+- Resolves manager DNs and group member DNs to `sAMAccountName`s at
   export time so the import never has to interpret a source-forest DN.
 - Captures a curated set of attributes; never writes any
-  password-related attribute (`UnicodePwd`, `LmPwdHistory`,
-  `NtPwdHistory`, `dBCSPwd`, `SupplementalCredentials`,
+  password-related attribute (`unicodePwd`, `lmPwdHistory`,
+  `ntPwdHistory`, `dBCSPwd`, `supplementalCredentials`,
   `msDS-KeyCredentialLink`) to the JSON.
 - Writes a pretty-printed JSON document (schema version 1) to
   `-OutputPath` and a transcript log to
@@ -71,8 +77,18 @@ export is read-only against production; the import is hard-pinned to
 
 ## Prerequisites
 
-Run from a domain-joined Windows workstation that has the
-`ActiveDirectory` PowerShell module:
+PowerShell 5.1 or later on Windows. The scripts are also compatible
+with PowerShell 7 on Windows.
+
+The **export** script has no module prerequisites. It uses
+`System.DirectoryServices.DirectoryEntry` and
+`System.DirectoryServices.DirectorySearcher` (which ship with .NET
+Framework on every Windows machine) to talk raw LDAP to the source
+DC. No RSAT install, no ADWS dependency.
+
+The **import** script still uses the `ActiveDirectory` PowerShell
+module (`RSAT-AD-PowerShell`) because it needs `New-ADUser`,
+`New-ADGroup`, etc. against the target forest:
 
 ```powershell
 # Windows Server (DC, member server, or admin jump-box):
@@ -81,9 +97,6 @@ Install-WindowsFeature RSAT-AD-PowerShell
 # Windows 10 / 11 workstation:
 Add-WindowsCapability -Online -Name Rsat.ActiveDirectory.DS-LDS.Tools~~~~0.0.1.0
 ```
-
-PowerShell 5.1 or later. The scripts are also compatible with
-PowerShell 7 on Windows.
 
 The account that runs the export needs read access to user and group
 objects in the source forest. The account that runs the import needs
@@ -116,6 +129,16 @@ testing of the offboarding flow):
     -SearchBase "OU=Architects,DC=ap-architekten,DC=local" `
     -OutputPath C:\Temp\ap-architects.json `
     -IncludeDisabled
+```
+
+In environments where cleartext LDAP (port 389) is blocked by policy,
+add `-UseLdaps` so the export binds on port 636 over TLS instead:
+
+```powershell
+.\Export-AdUsersAndGroups.ps1 `
+    -Server apsrv007vsn `
+    -OutputPath C:\Temp\ap-export.json `
+    -UseLdaps
 ```
 
 Dry-run the import:
@@ -207,17 +230,22 @@ Notes on shape:
 
 ## Safety guarantees
 
-- **Read-only against the source.** The export script only ever issues
-  `Get-AD*` cmdlets against `-Server`. There is no `New-AD*`,
-  `Set-AD*`, or `Remove-AD*` anywhere in the export script.
+- **Read-only against the source.** The export script only ever
+  issues LDAP search operations (`DirectorySearcher.FindAll` /
+  `FindOne`) against `-Server`. There are no
+  `DirectoryEntry.CommitChanges()`, `Add`, `Put`, or any other write
+  operations anywhere in the export script.
 - **Hard pin to `jab.loxal` for writes.** The import script aborts
   unless `(Get-ADDomain -Server $Server).DNSRoot -eq 'jab.loxal'` AND
   the DC is not in `ap-architekten.local`. Both conditions are checked
   explicitly.
-- **No password data is exported.** A `$forbiddenProperties` array
-  filters out `UnicodePwd`, `LmPwdHistory`, `NtPwdHistory`, `dBCSPwd`,
-  `SupplementalCredentials`, and `msDS-KeyCredentialLink` even if the
-  underlying `Get-ADUser` happens to surface them.
+- **No password data is exported.** The script requests a curated
+  `PropertiesToLoad` list and never asks AD for credential
+  attributes. A `$forbiddenProperties` assertion just before
+  serialisation catches any future edit that accidentally adds
+  `unicodePwd`, `lmPwdHistory`, `ntPwdHistory`, `dBCSPwd`,
+  `supplementalCredentials`, or `msDS-KeyCredentialLink` to the
+  emitted attribute hashtable.
 - **Generated passwords are dropped to a permission-locked CSV.** The
   import writes initial passwords to `<InputPath>.passwords.csv` and
   applies a restrictive ACL (current user + SYSTEM only).
