@@ -31,7 +31,7 @@
 
 .PARAMETER IncludeDisabled
     Switch. When set, disabled user accounts are included in the export.
-    Default behaviour skips them — dev forests don't need ballast.
+    Default behaviour skips them - dev forests don't need ballast.
 
 .PARAMETER Credential
     PSCredential bound when contacting the source DC. Omit to use the
@@ -102,13 +102,13 @@ try {
     Import-Module ActiveDirectory -ErrorAction Stop
 
     # -------------------------------------------------------------------
-    # Filtering tables — easy to amend without touching the body.
+    # Filtering tables - easy to amend without touching the body.
     # -------------------------------------------------------------------
 
     # WHY: pattern-based skip list for system / service accounts. The
     # default RID-500 (`Administrator`), `krbtgt`, `Guest`,
     # `DefaultAccount`, and the IIS / SQL service-account legacy
-    # prefixes are excluded — they belong to the directory itself, not
+    # prefixes are excluded - they belong to the directory itself, not
     # to the human staff the dev forest needs.
     $systemAccountPattern = '^(krbtgt|Guest|Administrator|DefaultAccount)$|^IUSR_|^IWAM_|^SQLServer|^MSOL_'
 
@@ -130,7 +130,7 @@ try {
     )
 
     # -------------------------------------------------------------------
-    # Forest safety check — refuse to read anything until we have proved
+    # Forest safety check - refuse to read anything until we have proved
     # the DC belongs to the expected source forest.
     # -------------------------------------------------------------------
     Write-Host "Verifying source forest..."
@@ -139,7 +139,7 @@ try {
 
     $sourceDomain = Get-ADDomain @adParams
     if ($sourceDomain.DNSRoot -ne 'ap-architekten.local') {
-        throw "Refusing to export from '$($sourceDomain.DNSRoot)' — this script only reads from ap-architekten.local"
+        throw "Refusing to export from '$($sourceDomain.DNSRoot)' - this script only reads from ap-architekten.local"
     }
     Write-Host ("Connected to {0} via DC {1}" -f $sourceDomain.DNSRoot, $Server)
 
@@ -149,7 +149,7 @@ try {
     $domainDn = $sourceDomain.DistinguishedName
 
     # -------------------------------------------------------------------
-    # Curated user property list — never `-Properties *`.
+    # Curated user property list - never `-Properties *`.
     # -------------------------------------------------------------------
     $userProperties = @(
         'SamAccountName', 'UserPrincipalName', 'DistinguishedName',
@@ -266,7 +266,7 @@ try {
             }
         }
 
-        # WHY: defence-in-depth — strip any forbidden property that may
+        # WHY: defence-in-depth - strip any forbidden property that may
         # have slipped through. Belt and braces against future edits.
         foreach ($forbidden in $forbiddenProperties) {
             if ($entry.attributes.Contains($forbidden)) {

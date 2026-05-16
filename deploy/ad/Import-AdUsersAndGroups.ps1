@@ -6,17 +6,17 @@
 .DESCRIPTION
     Idempotent (where possible) recreation of users, groups, OUs, and
     group memberships in a development forest. The script refuses to
-    write to anything other than `jab.loxal` — the safety check at the
+    write to anything other than `jab.loxal` - the safety check at the
     top is the most important code in the file.
 
     Three passes:
-      1. Groups   — created under TargetOu / relativeOuPath.
-      2. Users    — created with a freshly generated random password.
+      1. Groups   - created under TargetOu / relativeOuPath.
+      2. Users    - created with a freshly generated random password.
                     Manager attribute is re-mapped from
                     `managerSamAccountName` to the new manager DN in the
                     target forest. UPN is re-mapped to the target
                     forest's DNS root.
-      3. Memberships — Add-ADGroupMember per group, skipping any member
+      3. Memberships - Add-ADGroupMember per group, skipping any member
                     that wasn't created (with a warning).
 
     All generated passwords are written to a sibling CSV with
@@ -76,7 +76,7 @@
 #>
 
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
-# WHY: ConvertTo-SecureString -AsPlainText is unavoidable here — New-ADUser
+# WHY: ConvertTo-SecureString -AsPlainText is unavoidable here - New-ADUser
 # requires a SecureString, and the password is generated locally from a
 # CSPRNG (see New-RandomPassword). There is no plaintext source on disk
 # being read in; the generated string is wrapped immediately and the
@@ -111,7 +111,7 @@ $ErrorActionPreference = 'Stop'
 # is available on every supported Windows host.
 #
 # PSScriptAnalyzer suppression: this function is a generator, not a state
-# changer — the password it returns is bound into a SecureString by the
+# changer - the password it returns is bound into a SecureString by the
 # caller and never persisted in plaintext outside the password CSV (which
 # has a locked-down ACL applied immediately after write).
 function New-RandomPassword {
@@ -181,7 +181,7 @@ try {
     Import-Module ActiveDirectory -ErrorAction Stop
 
     # -------------------------------------------------------------------
-    # Hard safety check — bound up front, before reading anything.
+    # Hard safety check - bound up front, before reading anything.
     # WHY: this is the only thing standing between a misconfigured
     # invocation and a production-forest write. Using BOTH conditions
     # defensively: an explicit deny-list (must not be the source forest)
@@ -197,7 +197,7 @@ try {
     $targetDomain    = $targetDomainObj.DNSRoot
 
     if ($targetDomain -eq 'ap-architekten.local' -or $targetDomain -ne 'jab.loxal') {
-        throw "Refusing to write to '$targetDomain' — this script only writes to jab.loxal"
+        throw "Refusing to write to '$targetDomain' - this script only writes to jab.loxal"
     }
     Write-Host ("Connected to {0} via DC {1}" -f $targetDomain, $Server)
 
@@ -227,12 +227,12 @@ try {
         $null = Get-ADOrganizationalUnit @ouCheckParams
     }
     catch {
-        throw "TargetOu '$TargetOu' does not exist in '$targetDomain'. Create it with `New-ADOrganizationalUnit` first — this script will not auto-create the base OU."
+        throw "TargetOu '$TargetOu' does not exist in '$targetDomain'. Create it with `New-ADOrganizationalUnit` first - this script will not auto-create the base OU."
     }
 
     # -------------------------------------------------------------------
     # Helper: ensure all the intermediate OUs in a relative path exist
-    # under TargetOu. Idempotent — existing OUs are left alone.
+    # under TargetOu. Idempotent - existing OUs are left alone.
     # -------------------------------------------------------------------
     function Initialize-OuPath {
         [CmdletBinding(SupportsShouldProcess = $true)]
@@ -409,7 +409,7 @@ try {
             # WHY: every optional attribute is written only when the
             # export captured a non-null value. AD-resident fields that
             # were null in the source forest must remain null in the
-            # target — overwriting them with empty strings would corrupt
+            # target - overwriting them with empty strings would corrupt
             # the dev-forest state.
             if ($attrs.givenName)              { $createParams['GivenName']            = $attrs.givenName }
             if ($attrs.sn)                     { $createParams['Surname']              = $attrs.sn }
