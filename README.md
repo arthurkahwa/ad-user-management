@@ -37,7 +37,7 @@ Key differentiators:
 | Feature | Description |
 |---|---|
 | Per-employee journal | One `UserJournal` record per employee, capturing identity, contact, lifecycle dates (`ZeitVon`/`ZeitBis`), salutation (Anrede), academic title, freeform notes (`Notes01`–`Notes05`), and the onboarding checklist |
-| Identity sync from AD | `Vorname`, `Nachname`, `Kürzel`, `Sid`, `mail`, `telephoneNumber`, `physicalDeliveryOfficeName`, account-enabled state read live from AD on each load — never duplicated to SQL |
+| Identity sync from AD | `Vorname`, `Nachname`, `Sid`, `mail`, `telephoneNumber`, `physicalDeliveryOfficeName`, account-enabled state read live from AD on each load — never duplicated to SQL |
 | Lifecycle dates | `ZeitVon` (start) and `ZeitBis` (end, nullable) drive the active/inactive view, with `accountExpires` in AD kept in lockstep with `ZeitBis` |
 | Soft delete | Departing employees set `ZeitBis`; their AD account is disabled via `userAccountControl`; their journal record persists for audit and reporting |
 | Lookups | `AcademicTitle` (Dr./Prof./Dipl.-Ing./…) and `Anrede` (Herr/Frau/Divers/…) are reference tables, maintained through dedicated admin views |
@@ -118,7 +118,7 @@ Key differentiators:
 
 The system is a thin web UI over a typed service layer. The MVC host on Windows Server (IIS in-process or Kestrel-with-HTTP.sys) terminates one client surface — Razor Views authenticated with Windows Negotiate. Controllers call the shared service layer: `AdService` (LDAPS, attribute-level CAS), `AttributeService` (EF Core sidecar), `AuditService` (append-only writes), and `JournalService` (the journal-domain orchestrator that combines AD and sidecar reads into a single `UserJournal` view-model).
 
-**Hybrid storage** is the architectural backbone. Active Directory is the system of record for the 12 identity, contact, and lifecycle attributes that already have native AD homes; the SQL sidecar (`MADB`) is the system of record for the 25 application-specific attributes (onboarding checklist, freeform notes, Anrede salutation, third-party account references, audit log, reconciliation queue) that AD cannot store cleanly. The AD schema is **never extended** — schema extensions are operationally irreversible, and the application-specific data is the wrong shape for AD anyway. See [Why journal data isn't all in AD](#why-journal-data-isnt-all-in-ad) for the full rationale.
+**Hybrid storage** is the architectural backbone. Active Directory is the system of record for the 11 identity, contact, and lifecycle attributes that already have native AD homes; the SQL sidecar (`MADB`) is the system of record for the 26 application-specific attributes (onboarding checklist, freeform notes, Anrede salutation, third-party account references, audit log, reconciliation queue) that AD cannot store cleanly. The AD schema is **never extended** — schema extensions are operationally irreversible, and the application-specific data is the wrong shape for AD anyway. See [Why journal data isn't all in AD](#why-journal-data-isnt-all-in-ad) for the full rationale.
 
 Cross-store writes (mainly Create User, and any sync between `ZeitBis` and AD's `accountExpires`) follow an AD-first, SQL-second order. If the SQL sidecar write fails after the AD object exists, the failure is logged to the audit trail with a high-visibility `PartialState` flag and the affected user is surfaced in the admin `ReconciliationQueue`. The system does not attempt automatic rollback of the AD change (AD replication makes compensation unreliable) and does not retry SQL writes that fail for non-transport reasons (concurrency or constraint violations require human resolution).
 
@@ -459,7 +459,7 @@ A natural first instinct is to put every employee attribute into Active Director
 
 **AD is an identity directory, not an application database.** AD is tuned for attribute lookup against a population via LDAP filters, with multi-master replication across domain controllers. Per-attribute writes are slow (50–200 ms each, plus replication lag), search expressivity is limited to LDAP filter syntax, and there is no native support for compound queries, joins, or rich audit trails. For 5 contact fields per user that read 1 000× more than they write, the trade-off is acceptable — those are identity. For 20+ application booleans that get toggled multiple times during an onboarding flow, AD is the wrong tool.
 
-**Schema extensions are irreversible.** Adding ~25 custom attributes to your customer's AD forest would require Schema Admin rights, propagate across all DCs via `schemaUpdateNow`, and stay in the schema forever — Microsoft does not support attribute removal once a schema extension has been applied. If the application is ever retired the vestigial attributes remain in the customer's directory schema indefinitely. The hybrid model leaves AD's schema unmodified.
+**Schema extensions are irreversible.** Adding ~26 custom attributes to your customer's AD forest would require Schema Admin rights, propagate across all DCs via `schemaUpdateNow`, and stay in the schema forever — Microsoft does not support attribute removal once a schema extension has been applied. If the application is ever retired the vestigial attributes remain in the customer's directory schema indefinitely. The hybrid model leaves AD's schema unmodified.
 
 **The application data has the wrong shape for AD.** Most journal fields are:
 
@@ -468,9 +468,9 @@ A natural first instinct is to put every employee attribute into Active Director
 - **Application-specific third-party account references** (Autodesk / Adobe / Solibri): same problem.
 - **Lookup foreign keys** (`AnredeId`, `AcademicTitleId`): AD has no relational-style lookups; the lookup table itself has to live somewhere.
 
-**The hybrid model is what the application actually needs.** AD is the system of record for the 12 identity / contact / lifecycle attributes that already have well-typed native homes; the SQL sidecar (`MADB`) is the system of record for the 25 application-specific attributes. The journal view-model reads from both and presents them unified. Writes split by destination: identity-attribute changes go to AD via `AdService.UpdateAsync`; journal/checklist/notes changes go to SQL via `JournalService` / `AttributeService`. No duplication.
+**The hybrid model is what the application actually needs.** AD is the system of record for the 11 identity / contact / lifecycle attributes that already have well-typed native homes; the SQL sidecar (`MADB`) is the system of record for the 26 application-specific attributes. The journal view-model reads from both and presents them unified. Writes split by destination: identity-attribute changes go to AD via `AdService.UpdateAsync`; journal/checklist/notes changes go to SQL via `JournalService` / `AttributeService`. No duplication.
 
-### The 12 AD-resident attributes
+### The 11 AD-resident attributes
 
 | AD attribute | Journal field | Notes |
 |---|---|---|
@@ -478,7 +478,6 @@ A natural first instinct is to put every employee attribute into Active Director
 | `sAMAccountName` | `Aduser` | Logon name |
 | `givenName` | `Vorname` | First name |
 | `sn` | `Nachname` | Surname |
-| `initials` | `Kuerzel` | Short code (max 6 chars in AD) |
 | `objectSid` | `Sid` | Read-only system identity |
 | `personalTitle` | `AcademicTitle.Title` | Dr./Prof./…; mirrored from the lookup row at write time |
 | `mail` | `EMail` | Primary email |

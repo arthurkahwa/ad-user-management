@@ -164,7 +164,7 @@ Active Directory and the sidecar SQL database (`MADB`) split storage responsibil
 
 ### Fields stored in Active Directory
 
-These 12 attributes live in AD and are read live on every journal load:
+These 11 attributes live in AD and are read live on every journal load:
 
 | Journal field | AD attribute | Notes |
 |---|---|---|
@@ -172,7 +172,6 @@ These 12 attributes live in AD and are read live on every journal load:
 | `Aduser` | `sAMAccountName` | Logon name |
 | `Vorname` | `givenName` | First name |
 | `Nachname` | `sn` | Surname |
-| `Kuerzel` | `initials` | Short code, max 6 chars in AD |
 | `Sid` | `objectSid` | Read-only system identity |
 | `AcademicTitle.Title` | `personalTitle` | Mirrored from the lookup row at write time |
 | `EMail` | `mail` | Primary email |
@@ -183,7 +182,7 @@ These 12 attributes live in AD and are read live on every journal load:
 
 ### Fields stored in SQL (`UserJournalRecord` on `MADB`)
 
-Everything else: `AnredeId`, `AcademicTitleId` (FK columns), `Rechner`, `Notes01`–`Notes05`, the 20+ onboarding-checklist booleans (`AdAccountAnlegen`, `MailpostfachErstellen`, `OpenVpnZertifikat`, …), the three third-party-account fields (Autodesk / Adobe / Solibri with `Konto*` text + `*Erstellt` boolean), and the `RowVersion` concurrency token.
+Everything else: `AnredeId`, `AcademicTitleId` (FK columns), `Kuerzel` (the journal's short code; SQL-resident because the reference data model allows 32 characters while AD's `initials` attribute caps at 6 — truncating at the service-layer boundary on every write would lose information), `ZeitVon` (the employee's journal start date; SQL-resident because the application-domain "employee started" date is independent of the AD account's `whenCreated` and may predate or differ from it), `Rechner`, `Notes01`–`Notes05`, the 20+ onboarding-checklist booleans (`AdAccountAnlegen`, `MailpostfachErstellen`, `OpenVpnZertifikat`, …), the three third-party-account fields (Autodesk / Adobe / Solibri with `Konto*` text + `*Erstellt` boolean), and the `RowVersion` concurrency token.
 
 ### Read and write paths
 
