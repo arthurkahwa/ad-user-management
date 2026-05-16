@@ -930,33 +930,71 @@ try {
     # -------------------------------------------------------------------
     # Compose the JSON document.
     # -------------------------------------------------------------------
-    $document = [ordered]@{
-        schemaVersion = 1
-        exportedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
-        sourceForest  = $sourceForestDns
-        sourceDc      = $Server
-        searchBase    = $SearchBase
-        userCount     = $finalUsers.Count
-        groupCount    = $exportedGroups.Count
-        users         = @($finalUsers)
-        groups        = @($exportedGroups)
+    # Build the JSON document incrementally so any value-expression failure
+    # pinpoints the exact key + line, not just the opening of the literal.
+    $document = [ordered]@{}
+
+    $documentBuildSteps = @(
+        @{ Key = 'schemaVersion';  Value = { 1 } }
+        @{ Key = 'exportedAtUtc';  Value = { (Get-Date).ToUniversalTime().ToString('o') } }
+        @{ Key = 'sourceForest';   Value = { $sourceForestDns } }
+        @{ Key = 'sourceDc';       Value = { $Server } }
+        @{ Key = 'searchBase';     Value = { $SearchBase } }
+        @{ Key = 'userCount';      Value = { $finalUsers.Count } }
+        @{ Key = 'groupCount';     Value = { $exportedGroups.Count } }
+        @{ Key = 'users';          Value = { ,@($finalUsers.ToArray()) } }
+        @{ Key = 'groups';         Value = { ,@($exportedGroups.ToArray()) } }
+    )
+
+    foreach ($step in $documentBuildSteps) {
+        try {
+            $document[$step.Key] = & $step.Value
+        }
+        catch {
+            Write-Host ("[document build] Failed at key '{0}'" -f $step.Key) -ForegroundColor Red
+            Write-Host ("[document build] Exception: {0}" -f $_.Exception.GetType().FullName) -ForegroundColor Red
+            Write-Host ("[document build] Message:   {0}" -f $_.Exception.Message) -ForegroundColor Red
+            if ($_.Exception.InnerException) {
+                Write-Host ("[document build] Inner:     {0}: {1}" -f $_.Exception.InnerException.GetType().FullName, $_.Exception.InnerException.Message) -ForegroundColor Red
+            }
+            throw
+        }
     }
 
     # WHY: -Depth 8 covers users/attributes (2 levels) and groups/members
     # (1 level) with margin. Pretty-printed for easy human review of the
     # contract on disk before running the import.
-    $json = $document | ConvertTo-Json -Depth 8
+    try {
+        $json = $document | ConvertTo-Json -Depth 8
+    }
+    catch {
+        Write-Host "[ConvertTo-Json] Failed" -ForegroundColor Red
+        Write-Host ("[ConvertTo-Json] Exception: {0}" -f $_.Exception.GetType().FullName) -ForegroundColor Red
+        Write-Host ("[ConvertTo-Json] Message:   {0}" -f $_.Exception.Message) -ForegroundColor Red
+        if ($_.Exception.InnerException) {
+            Write-Host ("[ConvertTo-Json] Inner:     {0}: {1}" -f $_.Exception.InnerException.GetType().FullName, $_.Exception.InnerException.Message) -ForegroundColor Red
+        }
+        throw
+    }
 
     # WHY: Windows PowerShell 5.1's -Encoding utf8 writes UTF-8 *with*
     # BOM, which is what the import script (running on the same
     # platform) expects. PowerShell 7+ changed -Encoding utf8 to mean
     # *without* BOM, so on PS 7 we explicitly select utf8BOM to keep
     # the file format identical across versions.
-    if ($PSVersionTable.PSVersion.Major -ge 6) {
-        Set-Content -Path $OutputPath -Value $json -Encoding utf8BOM -Force
+    try {
+        if ($PSVersionTable.PSVersion.Major -ge 6) {
+            Set-Content -Path $OutputPath -Value $json -Encoding utf8BOM -Force
+        }
+        else {
+            Set-Content -Path $OutputPath -Value $json -Encoding utf8 -Force
+        }
     }
-    else {
-        Set-Content -Path $OutputPath -Value $json -Encoding utf8 -Force
+    catch {
+        Write-Host ("[Set-Content] Failed writing to '{0}'" -f $OutputPath) -ForegroundColor Red
+        Write-Host ("[Set-Content] Exception: {0}" -f $_.Exception.GetType().FullName) -ForegroundColor Red
+        Write-Host ("[Set-Content] Message:   {0}" -f $_.Exception.Message) -ForegroundColor Red
+        throw
     }
 
     $fileInfo = Get-Item -Path $OutputPath
