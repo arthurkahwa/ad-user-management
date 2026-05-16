@@ -99,11 +99,13 @@ public sealed record NewUserDto(
     string OuPath,
     string? Department,
     string? ManagerDn,
-    // Sidecar attributes (persisted in UserMgmt.Data, not AD)
-    string? CostCenter,
-    string? ContractType,
-    string? EmployeeId);
+    string? Mail,
+    string? TelephoneNumber,
+    string? PhysicalDeliveryOfficeName,
+    DateTime? AccountExpires);
 ```
+
+`NewUserDto` carries only AD-resident fields. The journal-specific fields (`AnredeId`, `AcademicTitleId`, `Kuerzel`, `Rechner`, the 20+ onboarding-checklist booleans, the five `Notes*` fields, and the three third-party-account fields) are passed via a separate `NewJournalDto` consumed by `IJournalService.CreateJournalAsync`. The journal service internally splits the inputs: AD fields → `IAdService.CreateAsync`, journal fields → `IAttributeService.UpsertAsync` on `UserJournalRecord`. See [Hybrid storage policy](#hybrid-storage-policy-for-userjournal).
 
 ### `Actor` (returned by `ICurrentActor`)
 
@@ -156,15 +158,53 @@ Service result types compose these — e.g. `Result<AdUser, CreateUserError>` wh
 
 `LdapsRequiredException` lives in `UserMgmt.Core/Ldap/` and is a simple `Exception` subclass.
 
-## Optimistic concurrency on `UserAttributes`
+## Hybrid storage policy for `UserJournal`
 
-`UserAttributes.RowVersion` is a `Guid` concurrency token that the application bumps on every write — **not** a SQL Server `rowversion` byte array. SQL Server's `rowversion` is server-generated and monotonically bumped, but SQLite (which the test fixture uses) has no equivalent type and won't auto-bump a `byte[]` column the same way; the M1.1 PR therefore deferred the real RowVersion concurrency test. Switching to an app-managed `Guid` makes the mechanism behave identically across SQL Server, SQLite, and EF Core's in-memory provider — the property is configured with `.IsConcurrencyToken()` on the model, `AttributeService` writes a fresh `Guid.NewGuid()` before each `SaveChangesAsync`, and EF Core's standard `DbUpdateConcurrencyException` path still surfaces stale-token attempts to update. The property is marked `[AuditIgnore]` so the audit log doesn't record token rotations. Callers exchange tokens as `Guid?` rather than `byte[]?` at the service boundary. The original `byte[] RowVersion` column shape in the `InitialCreate` migration is altered to `uniqueidentifier` by the follow-up `ChangeRowVersionToGuidConcurrencyToken` migration.
+Active Directory and the sidecar SQL database (`MADB`) split storage responsibility along data-shape lines. AD is the system of record for identity attributes that have native, well-typed homes in the schema; the sidecar is the system of record for application-specific data that AD cannot store cleanly. The AD schema is never extended.
+
+### Fields stored in Active Directory
+
+These 12 attributes live in AD and are read live on every journal load:
+
+| Journal field | AD attribute | Notes |
+|---|---|---|
+| `Upn` | `userPrincipalName` | Identity key |
+| `Aduser` | `sAMAccountName` | Logon name |
+| `Vorname` | `givenName` | First name |
+| `Nachname` | `sn` | Surname |
+| `Kuerzel` | `initials` | Short code, max 6 chars in AD |
+| `Sid` | `objectSid` | Read-only system identity |
+| `AcademicTitle.Title` | `personalTitle` | Mirrored from the lookup row at write time |
+| `EMail` | `mail` | Primary email |
+| `TelNr` | `telephoneNumber` | Phone |
+| `Platz` | `physicalDeliveryOfficeName` | Seat/office location |
+| `ZeitBis` | `accountExpires` | Native AD account expiration; kept in lockstep with the journal record |
+| `IsActive` (inverse) | `userAccountControl & ACCOUNTDISABLE` | Account enabled state |
+
+### Fields stored in SQL (`UserJournalRecord` on `MADB`)
+
+Everything else: `AnredeId`, `AcademicTitleId` (FK columns), `Rechner`, `Notes01`–`Notes05`, the 20+ onboarding-checklist booleans (`AdAccountAnlegen`, `MailpostfachErstellen`, `OpenVpnZertifikat`, …), the three third-party-account fields (Autodesk / Adobe / Solibri with `Konto*` text + `*Erstellt` boolean), and the `RowVersion` concurrency token.
+
+### Read and write paths
+
+- **Read.** `JournalService.GetJournalAsync(upn)` calls `IAdService.GetAsync(upn)` (AD) and `IAttributeService.GetAsync(upn)` (SQL) and merges the results into a `UserJournal` view-model.
+- **Write to an AD-resident field** (e.g. `Vorname`) routes through `IAdService.UpdateAsync` with LDAP attribute-level CAS (delete-old + add-new on `givenName`). SQL untouched.
+- **Write to a SQL-resident field** (e.g. ticking `OpenVpnZertifikat`) routes through `IAttributeService.UpdateChecklistAsync` (or `UpsertAsync` for bulk edits) with the `Guid` concurrency token. AD untouched.
+- **Cross-store writes** — Create Journal, and `ZeitBis` ↔ `accountExpires` sync — follow AD-first, SQL-second, with partial-state recovery via the `ReconciliationQueue` (see the cross-store consistency section in the README).
+
+### Why not extend the AD schema for the SQL-resident fields
+
+Schema extensions are operationally irreversible — Microsoft does not support removing custom attributes once `schemaUpdateNow` has propagated. The application data has the wrong shape for AD anyway (booleans on a checklist, multiple long-text note fields, lookup foreign keys), and the customer's AD forest belongs to the customer, not the application. The hybrid model keeps AD pristine.
+
+## Optimistic concurrency on `UserJournalRecord`
+
+`UserJournalRecord.RowVersion` is a `Guid` concurrency token that the application bumps on every write — **not** a SQL Server `rowversion` byte array. SQL Server's `rowversion` is server-generated and monotonically bumped, but SQLite (which the test fixture uses) has no equivalent type and won't auto-bump a `byte[]` column the same way; the M1.1 PR therefore deferred the real concurrency test. Switching to an app-managed `Guid` makes the mechanism behave identically across SQL Server, SQLite, and EF Core's in-memory provider — the property is configured with `.IsConcurrencyToken()` on the model, `AttributeService` writes a fresh `Guid.NewGuid()` before each `SaveChangesAsync`, and EF Core's standard `DbUpdateConcurrencyException` path surfaces stale-token attempts to update. The property is marked `[AuditIgnore]` so the audit log doesn't record token rotations. Callers exchange tokens as `Guid?` rather than `byte[]?` at the service boundary. The original `byte[] RowVersion` column shape in the `InitialCreate` migration is altered to `uniqueidentifier` by the follow-up `ChangeRowVersionToGuidConcurrencyToken` migration. The entity was renamed from `UserAttributes` to `UserJournalRecord` during the journal-domain pivot; the column shape and concurrency behaviour are unchanged.
 
 ## Migration conventions
 
 - **EF Core migrations** live in `src/UserMgmt.Data/Migrations/`. Use `dotnet ef migrations add` to scaffold.
 - **DENY UPDATE / DELETE on AuditEntry** runs in the migration's `Up` via `migrationBuilder.Sql(...)`. The GRANT target is configurable via the `UserMgmt:AppPrincipal` config key (default `CURRENT_USER` for local dev; in production, supplied via deploy-time configuration).
-- **Migration naming**: `<Verb>_<Subject>` (e.g. `Add_AuditEntryAppendOnly`, `Update_UserAttributes_AddCostCenter`).
+- **Migration naming**: `<Verb>_<Subject>` (e.g. `Add_AuditEntryAppendOnly`, `Rename_UserAttributes_To_UserJournalRecord`).
 
 ## Partial-class ownership map for `AdService`
 
@@ -200,24 +240,24 @@ The same rule applies to any other class that becomes `partial` across files in 
 
 ```
 src/
-  UserMgmt.Core/             Domain types, services, abstractions
-    Auth/                    ICurrentActor, Actor, SystemActor
-    Common/                  Result, PagedResult, error types
-    Domain/                  AdUser, NewUserDto, UserAttributes, UserAttributesDto
+  UserMgmt.Core/             Domain types, abstractions, journal orchestrator
+    Auth/                    ICurrentActor, Actor, SystemActor, AuditIgnoreAttribute
+    Common/                  Result, PagedResult, Unit, error records
+    Domain/                  AdUser, NewUserDto, UserJournal (view-model), OnboardingChecklist, Notes, ThirdPartyAccounts, AcademicTitle, Anrede
     Ldap/                    IAdConnection, AdConnection, LdapFilterEscape, LdapsRequiredException
-    Services/                IAdService, IAttributeService, IAuditService (implementations live in UserMgmt.Data)
+    Services/                IAdService + AdService (partial files), IAttributeService, IAuditService, IJournalService + JournalService
     Validation/              FluentValidation validators
   UserMgmt.Data/             EF Core
     UserMgmtDbContext.cs
-    Entities/                AuditEntry, ReconciliationQueue, AppLog
-    Services/                AdService, AttributeService, AuditService (depend on UserMgmtDbContext)
+    Entities/                UserJournalRecord, AuditEntry, ReconciliationQueue, AppLog
+    Services/                AttributeService, AuditService (depend on UserMgmtDbContext; interface lives in Core)
     Interceptors/            AuditSaveChangesInterceptor
     Migrations/              EF Core migrations (auto-generated)
 tests/
-  UserMgmt.Core.Tests/       xUnit
-    Services/                AdServiceTests, AttributeServiceTests, AuditServiceTests
+  UserMgmt.Core.Tests/       xUnit + NSubstitute + Shouldly + SQLite-in-memory
+    Services/                AdServiceTests (per-operation partials), AttributeServiceTests, AuditServiceTests, JournalServiceTests
     Ldap/                    LdapFilterEscapeTests
-    Fixtures/                SqliteDbContextFixture, ICurrentActorStub
+    Fixtures/                SqliteDbContextFixture, StubCurrentActor, SearchResultEntryBuilder, ModifyResponseBuilder, DirectoryResponseBuilder, CapturingLogger
 ```
 
 ## What this document is NOT
