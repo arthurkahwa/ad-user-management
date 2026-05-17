@@ -2,7 +2,7 @@
 
 Lightweight PowerShell precursor to the M7 `UserMgmt.ADImport` console
 application. Two scripts that move user, group, attribute, and group
-membership data from the `ap-architekten.local` production forest into
+membership data from the `source-forest.local` production forest into
 the `jab.loxal` development forest so engineers can run, test, and
 demo the application against a realistic but disposable directory.
 
@@ -16,7 +16,7 @@ export is read-only against production; the import is hard-pinned to
 
 ### `Export-AdUsersAndGroups.ps1`
 
-- Connects to a DC in `ap-architekten.local` over raw LDAP using
+- Connects to a DC in `source-forest.local` over raw LDAP using
   `System.DirectoryServices.DirectoryEntry` /
   `System.DirectoryServices.DirectorySearcher`. The script does NOT
   require the `ActiveDirectory` PowerShell module (no RSAT) and does
@@ -24,7 +24,7 @@ export is read-only against production; the import is hard-pinned to
   target DC. Only the LDAP port (389 cleartext by default, or 636
   over TLS when `-UseLdaps` is supplied) must be reachable.
 - Asserts the bound DC's `rootDSE.defaultNamingContext` ends with
-  `DC=ap-architekten,DC=local` and aborts otherwise.
+  `DC=source-forest,DC=local` and aborts otherwise.
 - Enumerates user and group objects under an optional `-SearchBase`
   (default: the rootDSE's `defaultNamingContext`).
 - Skips system accounts (`krbtgt`, `Guest`, `Administrator`,
@@ -47,7 +47,7 @@ export is read-only against production; the import is hard-pinned to
 ### `Import-AdUsersAndGroups.ps1`
 
 - Connects to a DC in the target forest and verifies it is `jab.loxal`
-  — and explicitly that it is not `ap-architekten.local`. Either
+  — and explicitly that it is not `source-forest.local`. Either
   condition aborts the run.
 - Validates the JSON `schemaVersion`.
 - Verifies the supplied `-TargetOu` exists (does not auto-create top
@@ -60,7 +60,7 @@ export is read-only against production; the import is hard-pinned to
      import subtree.
   2. **Users.** Creates each user with a freshly generated
      cryptographically-random password, re-maps the UPN to the target
-     forest (`jdoe@ap-architekten.local` → `jdoe@jab.loxal`), and
+     forest (`jdoe@source-forest.local` → `jdoe@jab.loxal`), and
      forces `ChangePasswordAtLogon`. A second sub-pass re-maps the
      `manager` attribute by `SamAccountName` once every user is in
      place.
@@ -111,11 +111,11 @@ Export the full source forest, then re-import into the dev forest:
 
 ```powershell
 .\Export-AdUsersAndGroups.ps1 `
-    -Server apsrv007vsn `
-    -OutputPath C:\Temp\ap-export.json
+    -Server dc01 `
+    -OutputPath C:\Temp\export.json
 
 .\Import-AdUsersAndGroups.ps1 `
-    -InputPath C:\Temp\ap-export.json `
+    -InputPath C:\Temp\export.json `
     -Server jab-dc01.jab.loxal `
     -TargetOu "OU=Imported,DC=jab,DC=loxal"
 ```
@@ -125,9 +125,9 @@ testing of the offboarding flow):
 
 ```powershell
 .\Export-AdUsersAndGroups.ps1 `
-    -Server apsrv007vsn `
-    -SearchBase "OU=Architects,DC=ap-architekten,DC=local" `
-    -OutputPath C:\Temp\ap-architects.json `
+    -Server dc01 `
+    -SearchBase "OU=Engineering,DC=source-forest,DC=local" `
+    -OutputPath C:\Temp\engineering.json `
     -IncludeDisabled
 ```
 
@@ -136,8 +136,8 @@ add `-UseLdaps` so the export binds on port 636 over TLS instead:
 
 ```powershell
 .\Export-AdUsersAndGroups.ps1 `
-    -Server apsrv007vsn `
-    -OutputPath C:\Temp\ap-export.json `
+    -Server dc01 `
+    -OutputPath C:\Temp\export.json `
     -UseLdaps
 ```
 
@@ -145,7 +145,7 @@ Dry-run the import:
 
 ```powershell
 .\Import-AdUsersAndGroups.ps1 `
-    -InputPath C:\Temp\ap-export.json `
+    -InputPath C:\Temp\export.json `
     -Server jab-dc01.jab.loxal `
     -TargetOu "OU=Imported,DC=jab,DC=loxal" `
     -WhatIf
@@ -162,31 +162,31 @@ within a major version; additive changes go to schemaVersion 2.
 {
   "schemaVersion": 1,
   "exportedAtUtc": "2026-05-16T12:34:56Z",
-  "sourceForest": "ap-architekten.local",
-  "sourceDc": "apsrv007vsn",
-  "searchBase": "DC=ap-architekten,DC=local",
+  "sourceForest": "source-forest.local",
+  "sourceDc": "dc01",
+  "searchBase": "DC=source-forest,DC=local",
   "userCount": 142,
   "groupCount": 38,
   "users": [
     {
       "samAccountName": "jdoe",
-      "userPrincipalName": "jdoe@ap-architekten.local",
+      "userPrincipalName": "jdoe@source-forest.local",
       "objectGuid": "...",
-      "relativeOuPath": "OU=Architects,OU=Users",
+      "relativeOuPath": "OU=Engineering,OU=Users",
       "attributes": {
         "givenName": "John",
         "sn": "Doe",
         "initials": null,
         "displayName": "John Doe",
         "personalTitle": "Dipl.-Ing.",
-        "mail": "jdoe@ap-architekten.local",
+        "mail": "jdoe@source-forest.local",
         "telephoneNumber": "...",
         "mobile": null,
         "office": null,
         "physicalDeliveryOffice": "...",
-        "department": "Architecture",
-        "title": "Senior Architect",
-        "company": "ap-architekten",
+        "department": "Engineering",
+        "title": "Senior Engineer",
+        "company": "source-forest",
         "managerSamAccountName": "msmith",
         "accountEnabled": true,
         "accountExpirationDateUtc": null,
@@ -201,12 +201,12 @@ within a major version; additive changes go to schemaVersion 2.
   ],
   "groups": [
     {
-      "samAccountName": "Architects",
+      "samAccountName": "Engineers",
       "relativeOuPath": "OU=Groups",
-      "description": "Architecture team",
+      "description": "Engineering team",
       "groupCategory": "Security",
       "groupScope": "Global",
-      "members": ["jdoe", "msmith", "group:SeniorArchitects"]
+      "members": ["jdoe", "msmith", "group:SeniorEngineers"]
     }
   ]
 }
@@ -223,7 +223,7 @@ Notes on shape:
   so the import can disambiguate during the membership pass.
 - Cross-forest references (the source-forest UPN, the source-forest
   manager DN) are not used by the import directly — the UPN is
-  re-mapped from `@ap-architekten.local` to `@jab.loxal`, and the
+  re-mapped from `@source-forest.local` to `@jab.loxal`, and the
   manager is looked up by SAM.
 
 ---
@@ -237,7 +237,7 @@ Notes on shape:
   operations anywhere in the export script.
 - **Hard pin to `jab.loxal` for writes.** The import script aborts
   unless `(Get-ADDomain -Server $Server).DNSRoot -eq 'jab.loxal'` AND
-  the DC is not in `ap-architekten.local`. Both conditions are checked
+  the DC is not in `source-forest.local`. Both conditions are checked
   explicitly.
 - **No password data is exported.** The script requests a curated
   `PropertiesToLoad` list and never asks AD for credential

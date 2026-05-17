@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
     Exports users, groups, attributes, and group memberships from the
-    `ap-architekten.local` production AD forest to a portable JSON file.
+    `source-forest.local` production AD forest to a portable JSON file.
 
 .DESCRIPTION
     Read-only against the source forest. Connects to the supplied DC
@@ -24,8 +24,8 @@
 
 .PARAMETER Server
     Hostname of a domain controller in the source forest (e.g.
-    `apsrv007vsn`). The script asserts the DC belongs to
-    `ap-architekten.local` before reading anything; it refuses to run
+    `dc01`). The script asserts the DC belongs to
+    `source-forest.local` before reading anything; it refuses to run
     against any other forest. Mandatory.
 
 .PARAMETER SearchBase
@@ -55,16 +55,16 @@
     by policy.
 
 .EXAMPLE
-    .\Export-AdUsersAndGroups.ps1 -Server apsrv007vsn `
-        -OutputPath C:\Temp\ap-export.json
+    .\Export-AdUsersAndGroups.ps1 -Server dc01 `
+        -OutputPath C:\Temp\export.json
 
     Export every active user and non-built-in group from the entire
-    `ap-architekten.local` domain over cleartext LDAP (port 389).
+    `source-forest.local` domain over cleartext LDAP (port 389).
 
 .EXAMPLE
-    .\Export-AdUsersAndGroups.ps1 -Server apsrv007vsn `
-        -SearchBase 'OU=Architects,DC=ap-architekten,DC=local' `
-        -OutputPath C:\Temp\ap-architects.json -IncludeDisabled `
+    .\Export-AdUsersAndGroups.ps1 -Server dc01 `
+        -SearchBase 'OU=Engineering,DC=source-forest,DC=local' `
+        -OutputPath C:\Temp\engineering.json -IncludeDisabled `
         -UseLdaps
 
     Export a single OU including disabled accounts over LDAPS (port
@@ -91,8 +91,8 @@
 
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
-    [string] $Server,
+    [Parameter(Mandatory = $false)]
+    [string] $Server = $env:COMPUTERNAME,
 
     [Parameter(Mandatory = $false)]
     [string] $SearchBase = $null,
@@ -323,7 +323,7 @@ function Get-RelativeOuPath {
     .SYNOPSIS
     Strip the leaf CN and the domain DN suffix from a distinguished
     name, returning just the OU portion (e.g.
-    "OU=Architects,OU=Users"). Returns $null when the DN is empty.
+    "OU=Engineering,OU=Users"). Returns $null when the DN is empty.
 
     LIMITATION: this is a string-level strip and does not honour DN
     escaping for commas inside CN values (e.g. CN="Doe\, John"). The
@@ -512,8 +512,8 @@ try {
     # the DC belongs to the expected source forest.
     # -------------------------------------------------------------------
     Write-Host "Verifying source forest..."
-    if (-not ($defaultNc.ToLowerInvariant().EndsWith('dc=ap-architekten,dc=local'))) {
-        throw ("Refusing to export from '{0}' - this script only reads from ap-architekten.local" -f $defaultNc)
+    if (-not ($defaultNc.ToLowerInvariant().EndsWith('dc=source-forest,dc=local'))) {
+        throw ("Refusing to export from '{0}' - this script only reads from source-forest.local" -f $defaultNc)
     }
 
     # WHY: dnsHostName and ldapServiceName are advisory belt-and-braces
@@ -524,8 +524,8 @@ try {
 
     # WHY: derive the source forest DNS name from defaultNamingContext
     # so the emitted JSON matches what the previous AD-module version
-    # produced ($sourceDomain.DNSRoot). Convert "DC=ap-architekten,
-    # DC=local" -> "ap-architekten.local".
+    # produced ($sourceDomain.DNSRoot). Convert "DC=source-forest,
+    # DC=local" -> "source-forest.local".
     $sourceForestDns = ($defaultNc -split ',' |
         Where-Object { $_ -match '^DC=' } |
         ForEach-Object { $_.Substring(3) }) -join '.'

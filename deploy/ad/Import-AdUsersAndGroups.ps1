@@ -47,7 +47,7 @@
     current Windows identity.
 
 .EXAMPLE
-    .\Import-AdUsersAndGroups.ps1 -InputPath C:\Temp\ap-export.json `
+    .\Import-AdUsersAndGroups.ps1 -InputPath C:\Temp\export.json `
         -Server jab-dc01.jab.loxal `
         -TargetOu 'OU=Imported,DC=jab,DC=loxal'
 
@@ -55,7 +55,7 @@
     OU of the `jab.loxal` development forest.
 
 .EXAMPLE
-    .\Import-AdUsersAndGroups.ps1 -InputPath C:\Temp\ap-export.json `
+    .\Import-AdUsersAndGroups.ps1 -InputPath C:\Temp\export.json `
         -Server jab-dc01.jab.loxal `
         -TargetOu 'OU=Imported,DC=jab,DC=loxal' -WhatIf
 
@@ -196,7 +196,7 @@ try {
     $targetDomainObj = Get-ADDomain @adParams
     $targetDomain    = $targetDomainObj.DNSRoot
 
-    if ($targetDomain -eq 'ap-architekten.local' -or $targetDomain -ne 'jab.loxal') {
+    if ($targetDomain -eq 'source-forest.local' -or $targetDomain -ne 'jab.loxal') {
         throw "Refusing to write to '$targetDomain' - this script only writes to jab.loxal"
     }
     Write-Host ("Connected to {0} via DC {1}" -f $targetDomain, $Server)
@@ -246,8 +246,8 @@ try {
 
         # The relative path is parsed right-to-left so we can create
         # the parent OUs before their children. Example input:
-        #   "OU=Architects,OU=Users"
-        # We want to create OU=Users under TargetOu, then OU=Architects
+        #   "OU=Engineering,OU=Users"
+        # We want to create OU=Users under TargetOu, then OU=Engineering
         # under that.
         $segments = @()
         foreach ($segment in ($RelativeOuPath -split ',(?=OU=)')) {
