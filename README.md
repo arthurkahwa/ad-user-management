@@ -412,7 +412,7 @@ sequenceDiagram
         SQL-->>AttrSvc: DbUpdateConcurrencyException
         AttrSvc-->>Jrn: Result.Failure(ConcurrencyConflict)
         Jrn-->>Ctrl: Result.Failure
-        Ctrl-->>Grid: 409 Conflict; client re-fetches and prompts re-edit
+        Ctrl-->>Grid: 409 Conflict — client re-fetches and prompts re-edit
     end
 ```
 
